@@ -1,6 +1,6 @@
 # LernRaumVR – Umsetzungsplan
 
-Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 6 (Dateigrößen 0,5–5 GB, Repo-Gerüst angelegt)
+Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 7 (Phase 1 umgesetzt: LDAP-Anmeldung, Freischaltung, Upload, Dateiliste)
 
 Ziel: Lehrkräfte laden Videos, Bilder, APKs und andere Dateien im Browser hoch und senden sie an PICO G2 4K. Die Brille holt sich die Aufträge selbst ab, sobald sie online ist. Der Server kann nichts auf die Brille schieben, deshalb fragt eine kleine App auf der Brille nach.
 
@@ -157,7 +157,7 @@ Einzeldateien liegen zwischen **500 MB und 5 GB** (Angabe von Till), der Gesamtb
 1. **tus mit großen Chunks** (32–64 MB, `tus-js-client`), Wiederholung mit Backoff, Fortsetzen nach Browser-Neustart oder Netzwechsel (gemerkter Upload), Anzeige von Fortschritt und Restzeit, Hinweis „Tab offen lassen“. Das `client_max_body_size` von nginx gilt je Chunk, nicht je Datei. Phase 0 prüft, ob Plesk/Passenger Chunks puffert (Plattenplatz, Zeitlimits).
 2. **Vorabprüfung** beim Anlegen (`POST /api/uploads`): angekündigte Größe ≤ `MAX_UPLOAD_BYTES`, freier Platz ≥ Größe + Reserve (`MIN_FREE_BYTES`), Kontingent der Person nicht überschritten. Abgelehnt wird **vor** dem Übertragen von 30 GB, mit klarer Meldung.
 3. **Kein Puffern im Arbeitsspeicher:** Streaming auf Platte. `uploads/` und `files/` liegen auf **demselben Dateisystem**, damit der Abschluss ein `rename` ist und nicht eine Kopie von 30 GB.
-4. **Nachverarbeitung als Hintergrundjob** (Status `processing`): SHA-256 und Blockhashes, ffprobe, APK-Analyse. Läuft im Worker-Thread, höchstens 1–2 Jobs parallel, damit der Server reaktionsfähig bleibt. Erst danach `ready`; erst dann ist Versand möglich. Unterbrochene Jobs werden nach einem Neustart wieder aufgenommen.
+4. **Nachverarbeitung als Hintergrundjob** (Status `processing`): SHA-256, ffprobe, Duplikat-Hinweis (Blockhashes und APK-Analyse folgen in Phase 3). Das Hashen läuft auf Streams im selben Prozess, höchstens 1 Job parallel; bei Dateien bis 5 GB ist das unkritisch (gemessen: 3 GB in rund 5 s, Server bleibt ansprechbar), ein Worker-Thread ist nicht nötig. Erst danach `ready`; erst dann ist Versand möglich. Unterbrochene Jobs werden nach einem Neustart wieder aufgenommen.
 5. **Aufräumen:** unvollständige Uploads verfallen nach 48 h (täglicher Cleanup); Konsistenzprüfung findet Dateien ohne Eintrag und Einträge ohne Datei.
 6. **Parallelität begrenzen:** z. B. 2 Uploads je Person, 4 insgesamt.
 7. **Server-Import als Alternative zum Browser:** Admin legt Dateien per SFTP/SSH in `DATA_DIR/import/`, LernRaumVR registriert sie (Hash, Analyse) ohne Browser-Upload. Sinnvoll, wenn ein Browser-Upload Stunden dauern würde.
@@ -343,7 +343,7 @@ Aufwände sind Schätzungen für eine Person mit Node-Erfahrung und etwas Androi
 | Phase | Inhalt | Fertig, wenn | Aufwand |
 |---|---|---|---|
 | **0 Machbarkeit** | **Brille:** ~~APK-Installation~~ (läuft über Pico-SDK, Version/Quelle/Lizenz dokumentieren), Entwicklermodus, Datei nach `Movies/`, Pico-Player, Standby, Dauertest Service, **Startapp-Test (HOME-Filter, Standard-App, Home-Taste), Möglichkeiten zum Sperren der Einstellungen im Pico-SDK**, Bauen-vs-kaufen. **Plesk:** WS, 2-GB-Upload (tus), Range-Download, Passenger-Prozessmodell, ffprobe, Traffic-Kontingent | Datei/Video kommt an; Plesk-Test bestanden oder Alternative benannt; `docs/phase0.md` | 2–4 Tage |
-| **1 Server** | Gerüst, Migrationen, verschlüsselte DB, **LDAP-Login aus `noten_webapp` portieren (Pflichtgruppe `AAD-LUL`), Freischaltung, `ADMIN_USERS`**, tus-Upload mit Vorabprüfung (Größe, Platz, Kontingent), Nachverarbeitung im Worker, Cleanup, Dateiliste, Löschen; Web: Login, Antrag-ausstehend-Seite, Upload, Liste, Benutzerverwaltung mit LDAP-Suche | 2-GB-Datei lässt sich abbrechen und fortsetzen, Hash stimmt; Test mit ≥ 20-GB-Datei; neue LDAP-Person bleibt gesperrt bis zur Freischaltung | 5–7 Tage |
+| **1 Server** (umgesetzt, siehe Abschnitt 17) | Gerüst, Migrationen, verschlüsselte DB, **LDAP-Login aus `noten_webapp` portieren (Pflichtgruppe `AAD-LUL`), Freischaltung, `ADMIN_USERS`**, tus-Upload mit Vorabprüfung (Größe, Platz, Kontingent), Nachverarbeitung im Worker, Cleanup, Dateiliste, Löschen; Web: Login, Antrag-ausstehend-Seite, Upload, Liste, Benutzerverwaltung mit LDAP-Suche | 2-GB-Datei lässt sich abbrechen und fortsetzen, Hash stimmt; Test mit ≥ 20-GB-Datei; neue LDAP-Person bleibt gesperrt bis zur Freischaltung | 5–7 Tage |
 | **2 Brillen-App** | Gerüst, **Launcher-Filter + einfache App-Liste (falls Phase 0 grünes Licht gibt)**, Kopplung, Service, Aufträge, Download mit Range, Prüfsumme, Ablage + Media-Scan; Web: Geräte, Kopplung, Einzelversand | Datei aus dem Browser liegt auf der gewählten Brille | 6–10 Tage |
 | **3 Status, Gruppen, APK, große Dateien** | Fortschritt/Heartbeat/Speicher live, Fehlerbilder, **Gruppen, Mehrfachversand, Download-Slots/Warteschlange**, APK-Installation, Selbstupdate, Abbrechen/Wiederholen, **Blockhashes, Server-Import, Speicherübersicht, Auftrag `remove`** | Weboberfläche zeigt Erfolg/Fehler; Versand an Gruppe aus 5 Brillen klappt mit Warteschlange; 20-GB-Datei kommt mit Blockprüfung an | 7–10 Tage |
 | **4 Betrieb** | Rollout-Skript, HTTPS, Backup, **Lasttest mit 33 Brillen**, Test im Unterricht | Eine Unterrichtsstunde mit allen Brillen läuft ohne Eingriff | 3–5 Tage |
@@ -440,3 +440,23 @@ Noch in Phase 0 zu prüfen (bei `noten_webapp` nicht nötig gewesen, nicht auf d
 - [ ] Pico-SDK: Version, Quelle, Lizenz dokumentieren; Funktionen für Startapp/Kiosk/Sperren prüfen
 - [ ] Bauen-vs-kaufen-Recherche (ArborXR, ManageXR, Pico Business Suite)
 - [ ] Repo-Gerüst (`server`, `web`, `headset`) anlegen
+
+---
+
+## 17. Stand der Umsetzung (Phase 1)
+
+Umgesetzt und getestet (68 automatische Tests, dazu ein Browser-Durchlauf mit Playwright):
+
+- **Anmeldung:** LDAP-Port aus `noten_webapp` (Service- und Direkt-Modus, Pflichtgruppe, Verzeichnissuche), Server-Sessions in SQLite (Cookie `HttpOnly`, `SameSite=Strict`), Ratenbegrenzung je Benutzername (persistent) und je IP (vor dem LDAP-Aufruf), CSRF-Schutz über Origin-Prüfung.
+- **Freischaltung:** neue Personen `pending`; `ADMIN_USERS` bei jedem Login ausgewertet; Admin-Seite zum Freischalten/Sperren, Kontingent je Person, Vorab-Freischaltung per Verzeichnissuche; Sperren beendet Sitzungen; Audit-Log.
+- **Upload:** tus unter `/api/uploads` (32-MB-Teile im Browser), Vorabprüfung (Größe, freier Platz inkl. Reserve laufender Uploads, Kontingent, höchstens 2 Uploads je Person / 4 gesamt), APK nur für Admins, fremde Uploads unsichtbar, Abschluss per `rename`, Aufräumen abgelaufener Uploads, Wiederaufnahme der Nachverarbeitung nach Neustart.
+- **Nachverarbeitung:** SHA-256, ffprobe mit Warnungen (Codec nicht H.264/H.265, über 4K, über 60 fps; die Grenzwerte sind Richtwerte und in Phase 0 mit echten Videos zu prüfen), Duplikaterkennung.
+- **Dateien:** Liste, Löschen (Besitzer/Admin, nicht bei offenen Aufträgen), Speicherübersicht.
+- **Messung:** 3-GB-Upload mit Abbruch mitten im Teil, Fortsetzen, Prüfsumme korrekt, Zwischenspeicher leer.
+
+Bewusst noch offen:
+
+- **LDAP gegen das echte AD** ist nicht getestet (nur gegen Ersatzobjekte); erster Test auf dem Plesk-Server in Phase 0.
+- **Plesk-Verhalten** bei Passenger/nginx (Chunk-Puffer, Timeouts, WebSocket) ist weiter Phase 0.
+- **Admin-Oberfläche für LDAP-Einstellungen** (wie in `noten_webapp`) gibt es noch nicht, die Konfiguration läuft nur über Umgebungsvariablen.
+- **Server-Import-Ordner, Blockhashes, Speicherübersicht für Admins, APK-Analyse** gehören zu Phase 3.

@@ -1,33 +1,76 @@
 import './style.css';
-import { getHealth } from './api';
+import { ApiError, getMe, logout, type User } from './api';
+import { h, replaceChildren } from './ui';
+import { libraryView } from './views/library';
+import { loginView } from './views/login';
+import { pendingView } from './views/pending';
+import { usersView } from './views/users';
 
-const app = document.querySelector<HTMLElement>('#app');
-if (!app) throw new Error('#app fehlt');
+const root = document.querySelector<HTMLElement>('#app');
+if (!root) throw new Error('#app fehlt');
 
-function formatBytes(bytes: number): string {
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let i = 0;
-  let value = bytes;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i += 1;
-  }
-  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+let dispose: (() => void) | undefined;
+
+function show(...nodes: Array<Node | null>): void {
+  dispose?.();
+  dispose = undefined;
+  replaceChildren(root!, ...nodes);
 }
 
-async function render(root: HTMLElement): Promise<void> {
-  root.innerHTML = '<h1>LernRaumVR</h1><p id="status">Verbinde mit dem Server …</p>';
-  const status = root.querySelector<HTMLElement>('#status');
-  if (!status) return;
+async function signOut(): Promise<void> {
+  await logout().catch(() => undefined);
+  showLogin();
+}
+
+function showLogin(): void {
+  show(loginView((user) => showApp(user)));
+}
+
+function showApp(user: User): void {
+  if (user.status !== 'approved') {
+    show(pendingView(user, () => void signOut(), () => void start()));
+    return;
+  }
+  let tab: 'library' | 'users' = 'library';
+  const content = h('div');
+  const nav = h('nav', { class: 'tabs' });
+
+  function render(): void {
+    dispose?.();
+    dispose = undefined;
+    const tabs: Array<['library' | 'users', string]> = [['library', 'Bibliothek']];
+    if (user.role === 'admin') tabs.push(['users', 'Benutzer']);
+    replaceChildren(nav, ...tabs.map(([id, label]) =>
+      h('button', { class: id === tab ? 'tab active' : 'tab', onClick: () => { tab = id; render(); } }, label)));
+    if (tab === 'library') {
+      const view = libraryView(user);
+      dispose = view.dispose;
+      replaceChildren(content, view.element);
+    } else {
+      replaceChildren(content, usersView());
+    }
+  }
+
+  const header = h(
+    'header',
+    { class: 'topbar' },
+    h('strong', {}, 'LernRaumVR'),
+    nav,
+    h('span', { class: 'row' }, h('span', { class: 'muted' }, user.displayName ?? user.username),
+      h('button', { class: 'secondary small', onClick: () => void signOut() }, 'Abmelden')),
+  );
+  show(header, h('main', {}, content));
+  render();
+}
+
+async function start(): Promise<void> {
   try {
-    const h = await getHealth();
-    const frei = h.freeBytes === undefined ? '' : `, freier Speicher ${formatBytes(h.freeBytes)}`;
-    status.className = h.status === 'ok' ? 'status-ok' : 'status-error';
-    status.textContent = `Server ${h.status === 'ok' ? 'erreichbar' : 'mit Fehler'} (Version ${h.version ?? '?'}${frei})`;
-  } catch {
-    status.className = 'status-error';
-    status.textContent = 'Server nicht erreichbar.';
+    const { user } = await getMe();
+    showApp(user);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) showLogin();
+    else show(h('main', { class: 'narrow' }, h('p', { class: 'error' }, 'Server nicht erreichbar.')));
   }
 }
 
-void render(app);
+void start();
