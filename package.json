@@ -1,0 +1,15 @@
+{
+  "name": "lernraumvr",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Plattform zum Verteilen von Videos, Bildern und Apps auf PICO-Brillen im Unterricht",
+  "workspaces": ["server", "web"],
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w web && npm run build -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
+    "test": "npm test -w server"
+  }
+}

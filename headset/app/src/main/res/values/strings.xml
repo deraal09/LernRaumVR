@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LernRaumVR</string>
+    <string name="notification_channel_name">Verbindung zum Server</string>
+    <string name="notification_title">LernRaumVR verbunden</string>
+</resources>

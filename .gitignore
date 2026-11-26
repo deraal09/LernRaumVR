@@ -1,0 +1,17 @@
+node_modules/
+dist/
+data/
+*.sqlite3
+*.sqlite3-*
+.env
+.env.*
+!.env.example
+.DS_Store
+# Android
+headset/.gradle/
+headset/build/
+headset/app/build/
+headset/local.properties
+headset/.idea/
+*.keystore
+*.jks

@@ -1,0 +1,19 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  line-height: 1.5;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 48rem;
+  margin: 3rem auto;
+  padding: 0 1rem;
+}
+.status-ok {
+  color: #0a7d32;
+}
+.status-error {
+  color: #b00020;
+}
