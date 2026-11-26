@@ -2,8 +2,10 @@ import './style.css';
 import { ApiError, getMe, logout, type User } from './api';
 import { h, replaceChildren } from './ui';
 import { libraryView } from './views/library';
+import { devicesView } from './views/devices';
 import { loginView } from './views/login';
 import { pendingView } from './views/pending';
+import { transfersView } from './views/transfers';
 import { usersView } from './views/users';
 
 const root = document.querySelector<HTMLElement>('#app');
@@ -31,19 +33,28 @@ function showApp(user: User): void {
     show(pendingView(user, () => void signOut(), () => void start()));
     return;
   }
-  let tab: 'library' | 'users' = 'library';
+  type Tab = 'library' | 'devices' | 'transfers' | 'users';
+  let tab: Tab = 'library';
   const content = h('div');
   const nav = h('nav', { class: 'tabs' });
 
   function render(): void {
     dispose?.();
     dispose = undefined;
-    const tabs: Array<['library' | 'users', string]> = [['library', 'Bibliothek']];
+    const tabs: Array<[Tab, string]> = [['library', 'Bibliothek'], ['devices', 'Brillen'], ['transfers', 'Übertragungen']];
     if (user.role === 'admin') tabs.push(['users', 'Benutzer']);
     replaceChildren(nav, ...tabs.map(([id, label]) =>
       h('button', { class: id === tab ? 'tab active' : 'tab', onClick: () => { tab = id; render(); } }, label)));
     if (tab === 'library') {
       const view = libraryView(user);
+      dispose = view.dispose;
+      replaceChildren(content, view.element);
+    } else if (tab === 'devices') {
+      const view = devicesView(user);
+      dispose = view.dispose;
+      replaceChildren(content, view.element);
+    } else if (tab === 'transfers') {
+      const view = transfersView();
       dispose = view.dispose;
       replaceChildren(content, view.element);
     } else {

@@ -82,3 +82,58 @@ export const ldapSearch = (q: string) =>
     'GET',
     `/api/admin/ldap-search?q=${encodeURIComponent(q)}`,
   );
+
+export interface DeviceInfo {
+  id: number;
+  name: string;
+  online: boolean;
+  lastSeenAt: string | null;
+  freeBytes: number | null;
+  batteryPercent: number | null;
+  appVersion: string | null;
+  androidVersion: string | null;
+  createdAt: string;
+  openTransfers: number;
+}
+
+export type TransferStatus =
+  | 'pending' | 'downloading' | 'verified' | 'done' | 'awaiting_confirmation' | 'installed' | 'failed' | 'cancelled';
+
+export interface TransferInfo {
+  id: number;
+  batchId: string | null;
+  kind: string;
+  fileId: string | null;
+  fileName: string | null;
+  fileSize: number | null;
+  deviceId: number;
+  deviceName: string | null;
+  createdBy: string | null;
+  status: TransferStatus;
+  queued: boolean;
+  bytesDone: number;
+  errorCode: string | null;
+  errorText: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
+export interface SendResult {
+  batchId: string;
+  created: number;
+  skipped: Array<{ deviceId: number; reason: 'unknown_device' | 'already_queued' | 'no_space' }>;
+}
+
+export const getDevices = () => api<{ devices: DeviceInfo[] }>('GET', '/api/devices');
+export const confirmDevice = (code: string, name?: string) =>
+  api<{ device: { id: number; name: string } }>('POST', '/api/devices/confirm', name ? { code, name } : { code });
+export const renameDevice = (id: number, name: string) => api<{ ok: true }>('PATCH', `/api/devices/${id}`, { name });
+export const revokeDevice = (id: number) => api<{ ok: true; cancelled: number }>('DELETE', `/api/devices/${id}`);
+export const sendFile = (fileId: string, deviceIds: number[]) =>
+  api<SendResult>('POST', '/api/transfers', { fileId, deviceIds });
+export const getTransfers = (all: boolean) =>
+  api<{ transfers: TransferInfo[] }>('GET', `/api/transfers?status=${all ? 'all' : 'open'}&limit=500`);
+export const cancelTransfer = (id: number) => api<{ cancelled: number }>('POST', `/api/transfers/${id}/cancel`);
+export const retryTransfer = (id: number) => api<{ ok: true }>('POST', `/api/transfers/${id}/retry`);
+export const cancelBatch = (id: string) => api<{ cancelled: number }>('POST', `/api/batches/${id}/cancel`);

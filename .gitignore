@@ -15,3 +15,7 @@ headset/local.properties
 headset/.idea/
 *.keystore
 *.jks
+headset/core/.gradle/
+headset/core/build/
+headset/core/.kotlin/
+headset/.kotlin/

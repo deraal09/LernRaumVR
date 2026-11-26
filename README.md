@@ -13,10 +13,10 @@ Machbarkeitsphase werden in [docs/phase0.md](docs/phase0.md) gesammelt.
 |---|---|
 | `server/` | Fastify-Server (TypeScript): LDAP-Anmeldung mit Freischaltung, tus-Upload, Dateien, verschlüsselte SQLite-Datenbank, Speicher-Schnittstelle |
 | `web/` | Weboberfläche (Vite + TypeScript): Anmeldung, Bibliothek mit Upload, Benutzerverwaltung |
-| `headset/` | Brillen-App (Kotlin, Android 8.1), siehe [headset/README.md](headset/README.md) |
+| `headset/` | Brillen-App (Kotlin, Android 8.1) mit testbarem Kern, siehe [headset/README.md](headset/README.md) |
 | `docs/` | Plan und Phase-0-Ergebnisse |
 
-Stand: Phase 1 (Server mit Anmeldung, Upload und Dateiliste) ist umgesetzt. Noch nicht: Brillen-Kopplung, Transfers, Brillen-App-Logik (Phase 2 ff.).
+Stand: Phase 1 (Anmeldung, Upload, Dateiliste) und Phase 2 (Kopplung, Aufträge, Download auf die Brille) sind umgesetzt. Noch nicht: Live-Status per WebSocket, APK-Installation, Gruppen, Launcher (Phase 3 ff.).
 
 ## Entwicklung
 

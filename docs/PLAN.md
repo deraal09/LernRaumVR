@@ -1,6 +1,6 @@
 # LernRaumVR – Umsetzungsplan
 
-Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 7 (Phase 1 umgesetzt: LDAP-Anmeldung, Freischaltung, Upload, Dateiliste)
+Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 8 (Phase 1 und 2 umgesetzt)
 
 Ziel: Lehrkräfte laden Videos, Bilder, APKs und andere Dateien im Browser hoch und senden sie an PICO G2 4K. Die Brille holt sich die Aufträge selbst ab, sobald sie online ist. Der Server kann nichts auf die Brille schieben, deshalb fragt eine kleine App auf der Brille nach.
 
@@ -344,7 +344,7 @@ Aufwände sind Schätzungen für eine Person mit Node-Erfahrung und etwas Androi
 |---|---|---|---|
 | **0 Machbarkeit** | **Brille:** ~~APK-Installation~~ (läuft über Pico-SDK, Version/Quelle/Lizenz dokumentieren), Entwicklermodus, Datei nach `Movies/`, Pico-Player, Standby, Dauertest Service, **Startapp-Test (HOME-Filter, Standard-App, Home-Taste), Möglichkeiten zum Sperren der Einstellungen im Pico-SDK**, Bauen-vs-kaufen. **Plesk:** WS, 2-GB-Upload (tus), Range-Download, Passenger-Prozessmodell, ffprobe, Traffic-Kontingent | Datei/Video kommt an; Plesk-Test bestanden oder Alternative benannt; `docs/phase0.md` | 2–4 Tage |
 | **1 Server** (umgesetzt, siehe Abschnitt 17) | Gerüst, Migrationen, verschlüsselte DB, **LDAP-Login aus `noten_webapp` portieren (Pflichtgruppe `AAD-LUL`), Freischaltung, `ADMIN_USERS`**, tus-Upload mit Vorabprüfung (Größe, Platz, Kontingent), Nachverarbeitung im Worker, Cleanup, Dateiliste, Löschen; Web: Login, Antrag-ausstehend-Seite, Upload, Liste, Benutzerverwaltung mit LDAP-Suche | 2-GB-Datei lässt sich abbrechen und fortsetzen, Hash stimmt; Test mit ≥ 20-GB-Datei; neue LDAP-Person bleibt gesperrt bis zur Freischaltung | 5–7 Tage |
-| **2 Brillen-App** | Gerüst, **Launcher-Filter + einfache App-Liste (falls Phase 0 grünes Licht gibt)**, Kopplung, Service, Aufträge, Download mit Range, Prüfsumme, Ablage + Media-Scan; Web: Geräte, Kopplung, Einzelversand | Datei aus dem Browser liegt auf der gewählten Brille | 6–10 Tage |
+| **2 Brillen-App** (umgesetzt, siehe Abschnitt 18) | Gerüst, **Launcher-Filter + einfache App-Liste (falls Phase 0 grünes Licht gibt)**, Kopplung, Service, Aufträge, Download mit Range, Prüfsumme, Ablage + Media-Scan; Web: Geräte, Kopplung, Einzelversand | Datei aus dem Browser liegt auf der gewählten Brille | 6–10 Tage |
 | **3 Status, Gruppen, APK, große Dateien** | Fortschritt/Heartbeat/Speicher live, Fehlerbilder, **Gruppen, Mehrfachversand, Download-Slots/Warteschlange**, APK-Installation, Selbstupdate, Abbrechen/Wiederholen, **Blockhashes, Server-Import, Speicherübersicht, Auftrag `remove`** | Weboberfläche zeigt Erfolg/Fehler; Versand an Gruppe aus 5 Brillen klappt mit Warteschlange; 20-GB-Datei kommt mit Blockprüfung an | 7–10 Tage |
 | **4 Betrieb** | Rollout-Skript, HTTPS, Backup, **Lasttest mit 33 Brillen**, Test im Unterricht | Eine Unterrichtsstunde mit allen Brillen läuft ohne Eingriff | 3–5 Tage |
 | **5 Launcher & Richtlinien** | `policies`-Tabelle und Admin-Seite, `GET /api/device/policy`, Kiosk-Launcher mit App-Auswahl vom Server, Einstellungen sperren (je nach Phase-0-Weg), Notausstieg/Entsperrcode, Stufentest 1 → Gruppe → 33 Brillen | Eine Gruppe zeigt nur freigegebene Apps, Einstellungen sind gesperrt, Rückbau per Server klappt | 5–8 Tage |
@@ -460,3 +460,23 @@ Bewusst noch offen:
 - **Plesk-Verhalten** bei Passenger/nginx (Chunk-Puffer, Timeouts, WebSocket) ist weiter Phase 0.
 - **Admin-Oberfläche für LDAP-Einstellungen** (wie in `noten_webapp`) gibt es noch nicht, die Konfiguration läuft nur über Umgebungsvariablen.
 - **Server-Import-Ordner, Blockhashes, Speicherübersicht für Admins, APK-Analyse** gehören zu Phase 3.
+
+---
+
+## 18. Stand der Umsetzung (Phase 2)
+
+Umgesetzt und getestet (89 Server-Tests, 29 Tests des Brillen-Kerns auf der JVM, Browser-Durchlauf mit Playwright, Durchlauf Kern gegen den echten Server):
+
+- **Kopplung:** Brille fordert einen 6-stelligen Code an (`POST /api/pairing`), bekommt dazu ein Geheimnis, das nur sie kennt. Ein Admin bestätigt den Code im Browser (Name optional, sonst „Brille 01 …“). Die Brille holt danach den Token ab (Geheimnis im Header `X-Poll-Secret`). In der Datenbank liegt nur der Hash. Ging die Antwort mit dem Token verloren (WLAN), darf sie ihn erneut abholen, solange er nie benutzt wurde. Code gilt 10 Minuten.
+- **Brillen-API:** Heartbeat (freier Speicher, Akku, Versionen), Aufträge abholen, Status melden mit geprüften Übergängen, Download mit `Range`/`ETag` nur für Brillen mit freigegebenem Auftrag.
+- **Download-Slots:** höchstens `MAX_PARALLEL_DOWNLOADS` gleichzeitig (Standard 8), je Brille einer. Übrige Aufträge stehen als „In Warteschlange“. Ohne Meldung gibt ein Auftrag seinen Slot nach 10 Minuten zurück.
+- **Browser:** Reiter „Brillen“ (Status, Kopplung, Umbenennen, Sperren), „Übertragungen“ (je Sendung Fortschritt, Abbrechen, Wiederholen) und der Knopf „Senden“ mit Brillenauswahl (online/alle/keine). Der Versand überspringt Brillen mit zu wenig Speicher oder offenem Auftrag und sagt das.
+- **Brillen-App:** Der Kern (`headset/core`) enthält Protokoll, Download mit Fortsetzen, Prüfsumme, Ablage, Kopplung und Abgleich und ist auf der JVM getestet. Die App (`headset/app`) ergänzt Dienst, Autostart, Anzeige des Codes, Speicherberechtigung, Wake-/WLAN-Lock während des Abgleichs und Medien-Scan.
+- **Durchlauf:** Der Kern koppelte sich gegen den echten Server, lud 48 MB, die Prüfsumme stimmte, der Server stand auf `done`.
+
+Bewusst noch offen:
+
+- **Die Android-App ist nicht gebaut und nicht auf einer Brille getestet.** Der Kern ist geprüft, die Android-Schicht (`app/`) nur geschrieben; der erste Bau läuft im CI. Auf der Brille zu prüfen: Speicherberechtigung, Dienst bei Standby/Laden, Medien-Scan, ob der Pico-Player die Dateien findet, Verhalten bei WLAN-Wechsel.
+- **Aufträge sehen die Brillen erst beim nächsten Abgleich (alle 15 s).** Der WebSocket für sofortige Benachrichtigung und Live-Fortschritt im Browser (statt Abfrage alle 3 s) folgt in Phase 3.
+- **APK-Installation, Gruppen, Auftrag `remove`, Selbstupdate, Blockhashes** gehören zu Phase 3.
+- **`.part`-Dateien** liegen im app-eigenen Ordner der Brille; bleibt eine Brille lange offline, bleiben Teildateien liegen, bis der Auftrag abgebrochen wird. Ein Aufräumen verwaister Teildateien fehlt noch.

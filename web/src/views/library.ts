@@ -1,6 +1,7 @@
 import { deleteFile, getFiles, getStorage, type FileInfo, type StorageInfo, type User } from '../api';
 import { errorMessage } from '../messages';
 import { startUpload, type UploadItem } from '../upload';
+import { openSendDialog } from './send-dialog';
 import { formatBytes, formatDate, formatDuration, h, replaceChildren } from '../ui';
 
 const KIND: Record<FileInfo['typ'], string> = { video: 'Video', image: 'Bild', apk: 'App (APK)', other: 'Datei' };
@@ -100,7 +101,9 @@ export function libraryView(user: User): { element: HTMLElement; dispose: () => 
           h('td', { class: 'num' }, formatBytes(f.groesse)),
           h('td', {}, h('span', { class: `badge ${f.status}` }, STATUS[f.status])),
           h('td', {}, f.uploadedBy?.name ?? '–', h('div', { class: 'muted small' }, formatDate(f.createdAt))),
-          h('td', {}, f.canDelete && f.status !== 'uploading'
+          h('td', { class: 'actions' }, f.status === 'ready' && f.typ !== 'apk'
+            ? h('button', { class: 'small', onClick: () => openSendDialog(f, () => { message.textContent = ''; }) }, 'Senden') : null,
+            f.canDelete && f.status !== 'uploading'
             ? h('button', {
                 class: 'danger small',
                 onClick: () => {

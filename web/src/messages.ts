@@ -10,6 +10,9 @@ const MESSAGES: Record<string, string> = {
   forbidden: 'Dazu fehlt die Berechtigung.',
   open_transfers: 'Die Datei wird gerade an Brillen gesendet und kann noch nicht gelöscht werden.',
   uploading: 'Die Datei wird noch hochgeladen. Bitte den Upload abbrechen.',
+  unknown_code: 'Dieser Code ist unbekannt oder abgelaufen. Auf der Brille einen neuen Code anzeigen lassen.',
+  name_taken: 'Dieser Name wird bereits von einer anderen Brille verwendet.',
+  file_not_ready: 'Die Datei ist noch nicht fertig verarbeitet.',
   query_too_short: 'Bitte mindestens 2 Zeichen eingeben.',
 };
 

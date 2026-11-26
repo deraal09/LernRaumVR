@@ -54,8 +54,20 @@ android {
         jvmTarget = "17"
     }
 
+    // Der plattformunabhängige Kern (Protokoll, Download, Prüfsumme, Ablage) liegt in ../core und wird
+    // dort auf der JVM getestet; hier werden seine Quellen mitkompiliert.
+    sourceSets {
+        getByName("main") {
+            java.srcDir("../core/src/main/kotlin")
+        }
+    }
+
     lint {
         // targetSdk 27 entspricht dem Gerät; Play-Store-Hinweise sind hier ohne Belang.
         disable += "ExpiredTargetSdkVersion"
     }
+}
+
+dependencies {
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
