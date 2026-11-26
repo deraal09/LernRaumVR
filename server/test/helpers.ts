@@ -74,6 +74,9 @@ export async function createTestEnv(
     storage,
     ldap,
     async close() {
+      // Der tus-FileStore legt sein Verzeichnis asynchron an; nicht aufräumen, bevor das fertig ist.
+      await app.ready();
+      await new Promise((resolve) => setTimeout(resolve, 20));
       await app.close();
       db.close();
       removeDir(dir);

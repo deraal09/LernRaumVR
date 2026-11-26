@@ -14,6 +14,13 @@ export interface StorageBackend {
   /** Liest den Bereich [start, end] (beide inklusive) oder die ganze Datei. */
   openRange(key: string, range?: { start: number; end: number }): Promise<Readable>;
   delete(key: string): Promise<void>;
+  /**
+   * Übernimmt eine fertig hochgeladene Datei unter `key`. Lokal ein `rename` (kein Kopieren von
+   * Gigabytes), deshalb müssen Quelle und Ziel auf demselben Dateisystem liegen.
+   */
+  adopt(key: string, sourcePath: string): Promise<void>;
+  /** Lokaler Dateipfad (für ffprobe), `null` bei Speichern ohne lokale Dateien. */
+  localPath(key: string): string | null;
   /** Freier Platz in Bytes, für Vorabprüfungen beim Upload. */
   freeBytes(): Promise<number>;
 }

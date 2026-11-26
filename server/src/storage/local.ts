@@ -40,6 +40,21 @@ export class LocalStorage implements StorageBackend {
     await fs.promises.rm(this.resolve(key), { force: true });
   }
 
+  async adopt(key: string, sourcePath: string): Promise<void> {
+    try {
+      await fs.promises.rename(sourcePath, this.resolve(key));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EXDEV') {
+        throw new Error('uploads/ und files/ liegen auf verschiedenen Dateisystemen (rename nicht möglich).', { cause: err });
+      }
+      throw err;
+    }
+  }
+
+  localPath(key: string): string {
+    return this.resolve(key);
+  }
+
   async freeBytes(): Promise<number> {
     const s = await fs.promises.statfs(this.root);
     return Number(s.bavail) * Number(s.bsize);

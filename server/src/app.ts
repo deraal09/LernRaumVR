@@ -8,10 +8,19 @@ import { registerAuth } from './auth/plugin.js';
 import type { Authenticator, DirectorySearch } from './auth/types.js';
 import { adminUserRoutes } from './routes/admin-users.js';
 import { authRoutes } from './routes/auth.js';
+import { filesRoutes } from './routes/files.js';
+import { FileProcessor } from './uploads/processing.js';
+import { registerUploads } from './uploads/tus.js';
 import { healthRoutes } from './routes/health.js';
 import type { StorageBackend } from './storage/types.js';
 
 export const VERSION = '0.1.0';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    processor: FileProcessor;
+  }
+}
 
 export interface AppDeps {
   config: Config;
@@ -28,6 +37,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     logger: deps.logger ?? deps.config.nodeEnv !== 'test',
     // Hinter Plesk/nginx: echte Client-IP aus X-Forwarded-For (Ratenbegrenzung, Audit-Log).
     trustProxy: true,
+    // Große Upload-Teile über langsame Verbindungen dürfen länger als Node-Standard (5 min) dauern.
+    requestTimeout: 0,
   });
 
   const { config, db } = deps;
@@ -40,6 +51,21 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   healthRoutes(app, { db, storage: deps.storage, version: VERSION });
   authRoutes(app, { config, db, guards, authenticator });
   adminUserRoutes(app, { config, db, guards, directory });
+  filesRoutes(app, { config, db, storage: deps.storage, guards });
+
+  const processor = new FileProcessor({
+    db,
+    storage: deps.storage,
+    ffprobePath: config.ffprobePath,
+    log: app.log,
+  });
+  await registerUploads(app, { config, db, storage: deps.storage, guards, processor });
+  app.decorate('processor', processor);
+  app.addHook('onReady', async () => {
+    const n = processor.recover();
+    if (n) app.log.info({ n }, 'Unterbrochene Nachverarbeitung wieder aufgenommen');
+  });
+  app.addHook('onClose', async () => processor.idle());
 
   // Gebaute Weboberfläche ausliefern, falls vorhanden (Produktion: ein Prozess, ein Port).
   const webDist = deps.config.webDist;
