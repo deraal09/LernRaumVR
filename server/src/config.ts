@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { ldapConfigFromEnv, type LdapConfig } from './auth/ldap.js';
 
 export interface Config {
   nodeEnv: string;
@@ -17,6 +18,15 @@ export interface Config {
   uploadExpiryHours: number;
   /** Verzeichnis mit der gebauten Weboberfläche (optional). */
   webDist: string;
+  /** `null`: LDAP nicht eingerichtet, Anmeldung ist dann nicht möglich. */
+  ldap: LdapConfig | null;
+  /** Standardkontingent je Person in Bytes; `null` = unbegrenzt. */
+  defaultQuotaBytes: number | null;
+  /** Pfad der ffprobe-Binärdatei (leer = nicht verwenden). */
+  ffprobePath: string;
+  /** Erlaubte Origin-Werte für Browser-Anfragen mit Cookie (CSRF-Schutz). */
+  allowedOrigins: string[];
+  secureCookies: boolean;
 }
 
 const GB = 1024 ** 3;
@@ -66,6 +76,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, baseDir = proce
   const port: number | string =
     rawPort === undefined || rawPort === '' ? 3001 : /^\d+$/.test(rawPort) ? Number(rawPort) : rawPort;
 
+  const publicUrl = (env['PUBLIC_URL'] ?? 'http://localhost:3001').replace(/\/+$/, '');
+  const allowedOrigins = [new URL(publicUrl).origin];
+  if (nodeEnv !== 'production') allowedOrigins.push('http://localhost:5173', 'http://localhost:3001');
+
   return {
     nodeEnv,
     port,
@@ -73,7 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, baseDir = proce
     dbPath: path.resolve(baseDir, env['DB_PFAD'] ?? path.join(dataDir, 'lernraumvr.sqlite3')),
     dbEncryptionKey,
     secret,
-    publicUrl: (env['PUBLIC_URL'] ?? 'http://localhost:3001').replace(/\/+$/, ''),
+    publicUrl,
     adminUsers: (env['ADMIN_USERS'] ?? '')
       .split(',')
       .map((u) => u.trim().toLowerCase())
@@ -83,5 +97,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, baseDir = proce
     maxParallelDownloads: positiveInt(env, 'MAX_PARALLEL_DOWNLOADS', 8),
     uploadExpiryHours: positiveInt(env, 'UPLOAD_EXPIRY_HOURS', 48),
     webDist: path.resolve(baseDir, env['WEB_DIST'] ?? '../web/dist'),
+    ldap: ldapConfigFromEnv(env),
+    defaultQuotaBytes: env['DEFAULT_QUOTA_BYTES'] ? positiveInt(env, 'DEFAULT_QUOTA_BYTES', 1) : null,
+    ffprobePath: env['FFPROBE_PATH'] ?? 'ffprobe',
+    allowedOrigins,
+    secureCookies: publicUrl.startsWith('https://'),
   };
 }

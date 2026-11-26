@@ -23,8 +23,7 @@ CREATE INDEX idx_sessions_expires ON sessions(expires_at);
 CREATE TABLE login_ratelimit (
   schluessel   TEXT PRIMARY KEY,
   fehlversuche INTEGER NOT NULL DEFAULT 0,
-  gesperrt_bis INTEGER,
-  updated_at   INTEGER NOT NULL
+  gesperrt_bis INTEGER
 );
 
 CREATE TABLE files (
@@ -116,7 +115,8 @@ CREATE TABLE transfers (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   batch_id    TEXT,
   kind        TEXT NOT NULL DEFAULT 'send' CHECK (kind IN ('send', 'install', 'remove', 'play')),
-  file_id     TEXT REFERENCES files(id) ON DELETE RESTRICT,
+  file_id     TEXT REFERENCES files(id) ON DELETE SET NULL,
+  file_name   TEXT,                              -- Schnappschuss, bleibt nach dem Löschen der Datei erhalten
   device_id   INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
   created_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
   status      TEXT NOT NULL DEFAULT 'pending'
