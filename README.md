@@ -40,5 +40,7 @@ npm run dev:web                                     # http://localhost:5173, lei
 ## Betrieb auf Plesk
 
 Plesk → Node.js: Anwendungsstamm `server`, Startdatei `dist/index.js`, Umgebungsvariablen
-laut `server/.env.example`. Details und offene Prüfungen: Abschnitt 12 in `docs/PLAN.md`.
+laut `server/.env.example`. Gebaut werden müssen `web` und `server` (`npm run build`). Wie das in der
+Plesk-Bereitstellungsaktion mit npm-Workspaces am besten läuft, ist in Phase 0 zu prüfen.
+Details und offene Prüfungen: Abschnitt 12 in `docs/PLAN.md`.
 `DB_ENCRYPTION_KEY` getrennt von Backups sichern: ohne ihn ist die Datenbank unlesbar.

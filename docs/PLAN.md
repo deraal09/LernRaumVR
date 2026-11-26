@@ -1,6 +1,6 @@
 # LernRaumVR – Umsetzungsplan
 
-Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 5 (AD-Gruppe, Subdomain, verschlüsselte DB, sehr große Inhalte)
+Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 6 (Dateigrößen 0,5–5 GB, Repo-Gerüst angelegt)
 
 Ziel: Lehrkräfte laden Videos, Bilder, APKs und andere Dateien im Browser hoch und senden sie an PICO G2 4K. Die Brille holt sich die Aufträge selbst ab, sobald sie online ist. Der Server kann nichts auf die Brille schieben, deshalb fragt eine kleine App auf der Brille nach.
 
@@ -15,7 +15,7 @@ Ziel: Lehrkräfte laden Videos, Bilder, APKs und andere Dateien im Browser hoch 
 | Hosting | **Plesk-Server**, Subdomain **`lernraumvr.bbz-rd-eck.com`** |
 | Anmeldung | **LDAP, umgesetzt wie in `noten_webapp`** (Active Directory, `ldapts`, Ratenbegrenzung); Pflichtgruppe **`AAD-LUL`** (`LDAP_REQUIRED_GROUP`) |
 | Datenbank | SQLite via `better-sqlite3-multiple-ciphers` (wie `noten_webapp`), `DB_ENCRYPTION_KEY` Pflicht | WAL; **ein** Serverprozess; Verschlüsselungs-/Migrationslogik aus `noten_webapp/src/db.js` übernehmen. Schlüssel getrennt vom Backup sichern. Die Dateien selbst werden nicht verschlüsselt |
-| Inhalte | werden **sehr groß** und wachsen; Upload, Speicher und Verteilung sind darauf ausgelegt (Abschnitt 6.1) |
+| Inhalte | **500 MB bis 5 GB je Datei**, Bestand wächst; Upload, Speicher und Verteilung sind darauf ausgelegt (Abschnitt 6.1) |
 | Wer darf hochladen | Personen mit LDAP-Zugang **und** Freischaltung durch einen Admin auf der Plattform |
 | Admins | Benutzernamen in einer **Plesk-Umgebungsvariable** (`ADMIN_USERS`) |
 | Brillen-App | soll die **Startapp (Launcher)** der Brille werden; später verwaltet sie die App-Auswahl und sperrt die Einstellungen (Abschnitt 7.5) |
@@ -151,7 +151,7 @@ Wie in `noten_webapp` die `LDAP_*`-Variablen (`LDAP_REQUIRED_GROUP=AAD-LUL`), da
 
 ### 6.1 Sehr große Inhalte: Upload, Speicher, Verteilung
 
-Annahme: Einzeldateien im zweistelligen GB-Bereich (z. B. 360°-Videos, Apps mit Datenpaketen), Gesamtbestand wächst bis in den TB-Bereich. Konkrete Größen sind offen (Frage 10); der Entwurf behandelt 50 GB je Datei nicht als Sonderfall.
+Einzeldateien liegen zwischen **500 MB und 5 GB** (Angabe von Till), der Gesamtbestand wächst über die Zeit (Gesamtvolumen noch offen, Frage 10). Der Entwurf lässt Reserve: `MAX_UPLOAD_BYTES` steht standardmäßig auf 10 GB.
 
 **Upload**
 1. **tus mit großen Chunks** (32–64 MB, `tus-js-client`), Wiederholung mit Backoff, Fortsetzen nach Browser-Neustart oder Netzwechsel (gemerkter Upload), Anzeige von Fortschritt und Restzeit, Hinweis „Tab offen lassen“. Das `client_max_body_size` von nginx gilt je Chunk, nicht je Datei. Phase 0 prüft, ob Plesk/Passenger Chunks puffert (Plattenplatz, Zeitlimits).
@@ -168,13 +168,13 @@ Annahme: Einzeldateien im zweistelligen GB-Bereich (z. B. 360°-Videos, Apps mit
 - **Kontingente:** Plattenplatz (Dateien + `uploads/` + `import/` + Verarbeitungsreserve), **monatlicher Traffic**, CPU/RAM-Limits. Wegen `noten_webapp` auf demselben Server die Limits des Abos klären. Subdomain: `lernraumvr.bbz-rd-eck.com`.
 - **Duplikate:** nach der Verarbeitung Hinweis, wenn dieselbe SHA-256 schon existiert.
 - **Löschen** nur ohne offene Transfers; Papierkorb später.
-- **Backup:** Datenbank täglich (Schlüssel `DB_ENCRYPTION_KEY` getrennt sichern). Inhalte voraussichtlich nicht im Plesk-Gesamtbackup, siehe 6.1 und Frage 11.
+- **Backup:** die verschlüsselte Datenbank täglich. Die Inhalte sind für ein Plesk-Gesamtbackup je nach Bestand vermutlich zu groß; Strategie ist offen (Frage 11): z. B. Abgleich auf zweiten Speicher oder Inhalte als wiederbeschaffbar behandeln und nur Metadaten sichern.
 
 **Verteilung großer Dateien an die Brillen**
 - **Download mit `Range`** und Fortsetzen über Tage hinweg (`.part` auf der Brille).
-- **Blockhashes** (z. B. je 64 MB) im Manifest: die Brille prüft jeden Block beim Laden, bei Fehlern wird nur dieser Block neu geholt, am Ende entfällt langes Voll-Hashing. Die Gesamt-SHA-256 bleibt Referenz. Empfohlen ab etwa 2 GB.
+- **Blockhashes** (z. B. je 64 MB) im Manifest: die Brille prüft jeden Block beim Laden, bei Fehlern wird nur dieser Block neu geholt, am Ende entfällt langes Voll-Hashing. Die Gesamt-SHA-256 bleibt Referenz. Bei Dateien bis 5 GB ist das eine Optimierung für schwaches WLAN und kann nach dem Lasttest entschieden werden (Phase 3, optional).
 - **Speicher der Brille:** vor dem Senden freien Platz prüfen (Datei + 10 % Reserve). Der Speicher der G2 4K ist begrenzt (Modell prüfen). Neuer Auftragstyp `remove`, der Dateien von der Brille löscht; der Heartbeat liefert die Liste der vorhandenen Inhalte.
-- **Traffic:** Größe × 33. Ein 20-GB-Inhalt sind 660 GB je Klassensatz und überschreiten vermutlich ein Plesk-Kontingent. Der **lokale Cache im Schulnetz** wird deshalb von „später“ zu „früh einplanen“ (Phase 6, bedingt, nach der Messung des Traffic-Kontingents in Phase 0): ein kleiner Server im Schulnetz holt die Datei einmal vom Plesk-Server und verteilt sie im LAN an die Brillen. Das Protokoll ist vorbereitet, weil die Download-URL im Auftrag steht und nicht fest in der App.
+- **Traffic:** Größe × 33. Ein 5-GB-Inhalt sind 165 GB je Klassensatz, ein 1-GB-Video 33 GB. Das kann ein Plesk-Kontingent schnell belasten. Der **lokale Cache im Schulnetz** bleibt eine bedingte Phase 6; ob er nötig ist, zeigen die Messung des Traffic-Kontingents in Phase 0 und der Lasttest in Phase 4. Ein kleiner Server im Schulnetz holt die Datei einmal vom Plesk-Server und verteilt sie im LAN. Das Protokoll ist vorbereitet, weil die Download-URL im Auftrag steht und nicht fest in der App.
 
 ### 6.2 Versand an 33 Brillen
 
@@ -317,18 +317,22 @@ Brille (`Authorization: Bearer <Token>`):
 
 ## 10. Repository-Struktur
 
+Angelegt (Stand Entwurf 6):
+
 ```
 LernRaumVR/
-├── docs/                 PLAN.md, phase0.md, lasttest.md, Entscheidungen (ADR)
-├── server/               Fastify, TypeScript, Migrationen, Tests
-├── web/                  Vite-Oberfläche
-├── headset/              Android-Projekt (Gradle, Kotlin)
-├── tools/                Rollout-Skript für 33 Brillen (adb)
-├── shared/               (optional) API-Typen/Schemas
-├── .github/workflows/    CI
-├── package.json          npm-Workspaces: server, web, shared
+├── docs/                 PLAN.md, phase0.md (Vorlage), später lasttest.md
+├── server/               Fastify 5, TypeScript, verschlüsselte SQLite, Migrationen, Tests (Vitest)
+│   ├── migrations/       001_init.sql (Schema aus Abschnitt 8)
+│   └── src/              config, db, storage, routes
+├── web/                  Vite + TypeScript (Startseite mit Server-Status)
+├── headset/              Android-Projekt (Gradle, Kotlin): Service, Autostart, Launcher-Alias
+├── .github/workflows/    CI (Typecheck, Tests, Build, APK)
+├── package.json          npm-Workspaces: server, web
 └── README.md
 ```
+
+Später: `tools/` (Rollout-Skript für 33 Brillen), gemeinsame API-Typen in `shared/`, falls nötig.
 
 ---
 
@@ -364,7 +368,7 @@ Grundlage: `noten_webapp` läuft bereits als Plesk-Node.js-App und zeigt, was fu
 - **Konfiguration:** nur Plesk-Umgebungsvariablen (siehe 5.4), keine Secrets im Repo.
 - **Dokumentenstamm** auf ein leeres `public/`-Verzeichnis, Daten (`DB`, `files/`, `uploads/`) **außerhalb** des Webverzeichnisses (z. B. unter `…/private/lernraumvr/`).
 - **Native Module:** `better-sqlite3` hat dort vorkompilierte Binaries bzw. `npm rebuild` als Rückfall (wie bei `noten_webapp`).
-- **Backup:** Plesk-Backup für die Datenbank plus `files/`; bei Verschlüsselung den Schlüssel getrennt sichern.
+- **Backup:** Datenbank täglich (Schlüssel `DB_ENCRYPTION_KEY` getrennt sichern). Inhalte voraussichtlich nicht im Plesk-Gesamtbackup, siehe 6.1 und Frage 11.
 - **LDAP-Erreichbarkeit** vom Plesk-Server ist damit bereits gegeben.
 
 Noch in Phase 0 zu prüfen (bei `noten_webapp` nicht nötig gewesen, nicht auf deinem Server getestet):
@@ -384,7 +388,7 @@ Noch in Phase 0 zu prüfen (bei `noten_webapp` nicht nötig gewesen, nicht auf d
 | LDAP-Konten werden durch Fremde gesperrt oder Unberechtigte melden sich an | Ratenbegrenzung wie `noten_webapp` (keine Verlängerung während Sperre), Pflichtgruppe |
 | Stille Installation verteilt unbemerkt eine schädliche APK | nur Admin darf APK hochladen, Paketname-Allowlist (+ Signatur-Fingerprint), Audit-Log |
 | Serverleitung/WLAN bei 33 Brillen zu langsam | Download-Slots, vorab senden, Lasttest, später lokaler Cache |
-| Traffic-Kontingent des Hostings überschritten (bei großen Inhalten × 33 Brillen schnell) | Kontingent in Phase 0 messen/erfragen, Download-Slots, Phase 6 (lokaler Cache) |
+| Traffic-Kontingent des Hostings überschritten (5 GB × 33 Brillen = 165 GB je Versand) | Kontingent in Phase 0 messen/erfragen, Download-Slots, Phase 6 (lokaler Cache) |
 | Platte läuft voll, Uploads brechen ab | Vorabprüfung (Größe, `MIN_FREE_BYTES`, Kontingent), Speicherübersicht, Cleanup, `StorageBackend` austauschbar, Server-Import |
 | Backup der großen Inhalte nicht möglich | Strategie festlegen (Frage 11); Metadaten/DB immer sichern |
 | Service wird im Standby beendet / Brille offline | Phase-0-Test, Watchdog, Autostart, Akku-Optimierung ausnehmen, am Ladegerät lassen |
@@ -409,7 +413,7 @@ Noch in Phase 0 zu prüfen (bei `noten_webapp` nicht nötig gewesen, nicht auf d
 7. **WLAN:** Wie viele Access Points im Raum, welche Bandbreite zum Internet?
 8. **Startapp/Sperren (offen, Till klärt):** Welche Funktionen bietet das Pico-SDK dafür (Kiosk, Einstellungen sperren, Standard-Launcher setzen)? Ist die Brille in einem Unternehmens-/Business-Modus?
 9. ~~Datenbank~~ **geklärt:** verschlüsselt wie `noten_webapp`.
-10. **Größenordnung:** Wie groß ist „sehr groß“? Größte Einzeldatei, Gesamtbestand heute und in 12 Monaten, Dateitypen (360°-Video, App-Pakete)?
+10. **Größenordnung:** Einzeldateien 0,5–5 GB (geklärt). Offen: Gesamtbestand heute und in 12 Monaten, wie viele Inhalte kommen pro Halbjahr neu dazu?
 11. **Backup/Speicherort:** Wo sollen die Inhalte langfristig liegen (Plesk-Platte, Schul-NAS, Objektspeicher), und müssen sie gesichert werden?
 
 ---
