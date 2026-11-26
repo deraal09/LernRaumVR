@@ -8,7 +8,13 @@ import { registerAuth } from './auth/plugin.js';
 import type { Authenticator, DirectorySearch } from './auth/types.js';
 import { adminUserRoutes } from './routes/admin-users.js';
 import { authRoutes } from './routes/auth.js';
+import { deviceApiRoutes } from './routes/device-api.js';
+import { deviceRoutes } from './routes/devices.js';
 import { filesRoutes } from './routes/files.js';
+import { pairingRoutes } from './routes/pairing.js';
+import { transferRoutes } from './routes/transfers.js';
+import { registerDeviceAuth } from './devices/guard.js';
+import { purgePairings } from './devices/pairing.js';
 import { FileProcessor } from './uploads/processing.js';
 import { registerUploads } from './uploads/tus.js';
 import { healthRoutes } from './routes/health.js';
@@ -52,6 +58,15 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   authRoutes(app, { config, db, guards, authenticator });
   adminUserRoutes(app, { config, db, guards, directory });
   filesRoutes(app, { config, db, storage: deps.storage, guards });
+
+  const { requireDevice } = registerDeviceAuth(app, db);
+  pairingRoutes(app, { db });
+  deviceRoutes(app, { db, guards });
+  transferRoutes(app, { db, guards });
+  deviceApiRoutes(app, { config, db, storage: deps.storage, requireDevice });
+  const pairingTimer = setInterval(() => purgePairings(db), 60 * 60 * 1000);
+  pairingTimer.unref();
+  app.addHook('onClose', async () => clearInterval(pairingTimer));
 
   const processor = new FileProcessor({
     db,

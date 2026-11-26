@@ -63,6 +63,7 @@ CREATE TABLE devices (
   token_hash       TEXT NOT NULL UNIQUE,
   last_seen_at     TEXT,
   freier_speicher  INTEGER,
+  akku_prozent     INTEGER,
   app_version      TEXT,
   android_version  TEXT,
   revoked_at       TEXT,

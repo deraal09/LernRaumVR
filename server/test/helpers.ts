@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -90,4 +91,40 @@ export async function login(app: FastifyInstance, username: string, password: st
   const cookie = res.cookies.find((c) => c.name === 'lrvr_session');
   if (!cookie) throw new Error(`Login fehlgeschlagen: ${res.statusCode} ${res.body}`);
   return `lrvr_session=${cookie.value}`;
+}
+
+export interface PairedDevice {
+  id: number;
+  name: string;
+  token: string;
+  auth: { authorization: string };
+}
+
+/** Koppelt eine Brille über die echten Endpunkte (Code anfordern, bestätigen, Token abholen). */
+export async function pairDevice(t: TestEnv, adminCookie: string, name?: string): Promise<PairedDevice> {
+  const p = await t.app.inject({ method: 'POST', url: '/api/pairing', payload: { model: 'G2 4K', androidVersion: '8.1.0', appVersion: '0.1.0' } });
+  if (p.statusCode !== 201) throw new Error(`pairing: ${p.statusCode} ${p.body}`);
+  const { pairingId, code, pollSecret } = p.json();
+  const c = await t.app.inject({
+    method: 'POST', url: '/api/devices/confirm', headers: { cookie: adminCookie },
+    payload: name ? { code, name } : { code },
+  });
+  if (c.statusCode !== 201) throw new Error(`confirm: ${c.statusCode} ${c.body}`);
+  const poll = await t.app.inject({ method: 'GET', url: `/api/pairing/${pairingId}`, headers: { 'x-poll-secret': pollSecret } });
+  const body = poll.json();
+  if (body.status !== 'confirmed') throw new Error(`poll: ${poll.body}`);
+  return { id: body.deviceId, name: body.name, token: body.token, auth: { authorization: `Bearer ${body.token}` } };
+}
+
+/** Legt eine fertig verarbeitete Datei direkt in Speicher und Datenbank ab. */
+export function addReadyFile(t: TestEnv, content: Buffer, name = 'film.mp4', uploadedBy = 1): string {
+  const id = crypto.randomBytes(16).toString('hex');
+  fs.writeFileSync(path.join(t.dir, 'data/files', id), content);
+  t.db
+    .prepare(
+      `INSERT INTO files (id, name, original_name, typ, groesse, sha256, status, storage_key, uploaded_by)
+       VALUES (?, ?, ?, 'video', ?, ?, 'ready', ?, ?)`,
+    )
+    .run(id, name, name, content.length, crypto.createHash('sha256').update(content).digest('hex'), id, uploadedBy);
+  return id;
 }
