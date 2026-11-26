@@ -1,6 +1,6 @@
 # LernRaumVR – Umsetzungsplan
 
-Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 3 (Festlegungen und Phase-0-Zwischenstand eingearbeitet)
+Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 4 (LDAP wie `noten_webapp`, APK-Installation per Pico-SDK bestätigt)
 
 Ziel: Lehrkräfte laden Videos, Bilder, APKs und andere Dateien im Browser hoch und senden sie an PICO G2 4K. Die Brille holt sich die Aufträge selbst ab, sobald sie online ist. Der Server kann nichts auf die Brille schieben, deshalb fragt eine kleine App auf der Brille nach.
 
@@ -13,19 +13,19 @@ Ziel: Lehrkräfte laden Videos, Bilder, APKs und andere Dateien im Browser hoch 
 | Projektname | **LernRaumVR** („Lernblick“ entfällt) |
 | Anzahl Brillen | **33** (Klassensatz) |
 | Hosting | **Plesk-Server** |
-| Anmeldung | **LDAP** (keine lokalen Passwörter) |
+| Anmeldung | **LDAP, umgesetzt wie in `noten_webapp`** (Repo `deraal09/noten_webapp`: Active Directory, `ldapts`, Pflichtgruppe, Ratenbegrenzung) |
 | Wer darf hochladen | Personen mit LDAP-Zugang **und** Freischaltung durch einen Admin auf der Plattform |
 | Admins | Benutzernamen in einer **Plesk-Umgebungsvariable** (`ADMIN_USERS`) |
 | Brillen-App | soll die **Startapp (Launcher)** der Brille werden; später verwaltet sie die App-Auswahl und sperrt die Einstellungen (Abschnitt 7.5) |
 
-**Phase-0-Zwischenstand (Till):** APK-Installation auf der Brille funktioniert. Welcher Weg genau (still über Pico-SDK oder mit Bestätigung) ist noch in `docs/phase0.md` festzuhalten, er bestimmt Abschnitt 7.3 und 7.5.
+**Phase-0-Stand (Till):** APK-Installation läuft **über das Pico-SDK** (still, ohne Rückfrage in der Brille). Damit ist Weg A bestätigt. Version, Bezugsquelle und Lizenz des SDK gehören noch in `docs/phase0.md` (das SDK selbst nicht in ein öffentliches Repo einchecken, ohne die Lizenz zu prüfen).
 
 Folgen daraus, die den ersten Entwurf ändern:
 
 - **Startapp/Kiosk:** Die App wird zusätzlich als Launcher gebaut, später mit App-Auswahl und gesperrten Einstellungen. Dafür gibt es Richtlinien pro Brille/Gruppe, die der Server verteilt.
 - **33 Brillen:** Versand an viele Brillen gleichzeitig ist kein „später“, sondern V1 (Mehrfachauswahl + einfache Gruppen). Dazu kommen eine Download-Begrenzung (Warteschlange) und ein Lasttest, siehe Abschnitt 6.
-- **LDAP:** Passwort-Tabelle, Hashing und Passwort-Regeln entfallen. Neu: Freischaltungs-Workflow und Admin-Seite für Benutzer, siehe Abschnitt 5.
-- **Plesk:** Node.js läuft dort über Passenger (nach meinem Kenntnisstand; auf deinem Server prüfen). Das hat Folgen für WebSocket, große Uploads, mehrere Prozesse und native Module. Phase 0 enthält deshalb einen Plesk-Test, siehe Abschnitt 12.
+- **LDAP:** Passwort-Tabelle, Hashing und Passwort-Regeln entfallen. Der LDAP-Teil wird aus `noten_webapp` übernommen (Abschnitt 5); neu ist nur der Freischaltungs-Workflow für Uploads.
+- **Plesk:** `noten_webapp` läuft bereits auf deinem Plesk als Node.js-App (Passenger, Git-Deploy, Umgebungsvariablen in der Plesk-UI, ein Prozess). Dieser Weg wird übernommen (Abschnitt 12). Offen bleiben nur WebSocket und sehr große Uploads/Downloads.
 
 ---
 
@@ -53,7 +53,7 @@ Folgen daraus, die den ersten Entwurf ändern:
 | Brillen koppeln, Status sehen | ja, Übersicht für 33 Geräte | |
 | Senden | an einzelne, **mehrere und Gruppen** gleichzeitig | Zeitpläne |
 | Warteschlange/Download-Begrenzung | ja | lokaler Cache im Schulnetz |
-| APK installieren | Installation klappt (Phase 0); still oder mit Bestätigung je nach Weg | |
+| APK installieren | still über das Pico-SDK (in Phase 0 bestätigt), nur Admin, Paketname-Allowlist | |
 | Brillen-App als Startapp | ja, sofern die Brille es zulässt (Phase 0): Start nach Boot und Home-Taste, einfache App-Liste | |
 | App-Auswahl verwalten, Einstellungen sperren | nein | ja (Phase 5): Richtlinien pro Brille/Gruppe |
 | Videos umwandeln | nein, nur Prüfung + Warnung | FFmpeg-Warteschlange |
@@ -90,12 +90,12 @@ Nicht Teil von V1: Zeitpläne, Transcoding, Fernsteuerung, Unterrichtspakete, Or
 
 | Teil | Wahl | Anmerkung |
 |---|---|---|
-| Server | Node.js LTS, TypeScript, Fastify | Zod/TypeBox zur Validierung |
-| LDAP | `ldapts` (TypeScript-Client) | Suche per Service-Konto, danach Bind mit dem Passwort der Person; nur LDAPS/StartTLS mit Zertifikatsprüfung |
+| Server | Node.js LTS (Plesk-Node 22 wie bei `noten_webapp`), Fastify, TypeScript | gleiche Fastify-Hauptversion wie `noten_webapp` (v4), damit Plugins und Code 1:1 übernommen werden können; Zod/TypeBox zur Validierung. `noten_webapp` ist reines JavaScript, hier TypeScript wegen der größeren API |
+| LDAP | `ldapts` (wie `noten_webapp`) | `src/auth/ldap.js` portieren: Service-Modus und Direkt-Bind-Modus, RFC-4515-Escaping, Pflichtgruppe auch verschachtelt (AD-Regel `1.2.840.113556.1.4.1941`), Verzeichnissuche für Admins |
 | Upload | tus (`@tus/server`, `FileStore`) | feste Chunk-Größe (z. B. 8–32 MB), nach Abschluss SHA-256, ffprobe, Verschieben in `files/` |
 | Download | eigener Fastify-Handler mit `Range` | `206`, `ETag` = SHA-256, Auth per Gerätetoken, Slot-Vergabe (Abschnitt 6) |
-| Datenbank | SQLite, `better-sqlite3`, SQL-Migrationen | WAL; **ein** Serverprozess. Falls Kompilieren auf Plesk scheitert: `node:sqlite` oder vorkompilierte Binaries |
-| Sessions | Server-Sessions in SQLite, Cookie `HttpOnly; Secure; SameSite=Strict` | |
+| Datenbank | SQLite, `better-sqlite3`, SQL-Migrationen | WAL; **ein** Serverprozess. `noten_webapp` nutzt `better-sqlite3-multiple-ciphers` mit `DB_ENCRYPTION_KEY`; hier optional (keine Notendaten), Entscheidung offen |
+| Sessions | `@fastify/session` mit SQLite-Store (wie `noten_webapp`), Cookie `HttpOnly; Secure; SameSite=Strict` | |
 | Web | Vite + TypeScript, Preact oder Vanilla | `tus-js-client` |
 | Brillen-App | Kotlin, minSdk 26, OkHttp (HTTP + WS), Coroutines | `SharedPreferences` für Token |
 | Medienprüfung | `ffprobe` (statische Binärdatei, falls Plesk keins bietet) | Codec, Auflösung, Dauer, Bitrate → Warnungen |
@@ -105,39 +105,43 @@ Nicht Teil von V1: Zeitpläne, Transcoding, Fernsteuerung, Unterrichtspakete, Or
 
 ---
 
-## 5. Anmeldung und Freischaltung (LDAP)
+## 5. Anmeldung und Freischaltung (LDAP, wie `noten_webapp`)
 
-### 5.1 Ablauf
-1. Person gibt Benutzername + Passwort im Browser ein (`POST /api/login`).
-2. Server sucht den Eintrag mit dem **Service-Konto** (nur Leserechte) per Filter, prüft ggf. Gruppenzugehörigkeit, bindet dann mit dem Passwort der Person. Das Passwort wird nie gespeichert oder geloggt.
-3. Erfolg → Benutzerzeile anhand `ldap_uid` (kleingeschrieben) suchen oder anlegen:
-   - `uid` steht in `ADMIN_USERS` → Rolle `admin`, Status `approved` (wird bei **jedem** Login aus der Variable neu bestimmt; Entfernen aus der Variable nimmt die Rechte wieder).
-   - sonst neu → Status `pending`, Hinweis „Freischaltung durch Admin ausstehend“, kein Zugriff auf Upload, Dateien, Brillen.
-   - Status `approved` → Rolle `user`, voller Zugriff (außer Admin-Funktionen).
-   - Status `blocked` → Login abgelehnt.
-4. Session-Cookie wird gesetzt. Die Brillen sind nicht betroffen, sie nutzen eigene Tokens, auch wenn LDAP ausfällt.
+Die Anmeldung wird aus `noten_webapp` übernommen (Quelle: `src/auth/ldap.js`, `ldap-settings.js`, `login-ratelimit.js`, `secret-crypto.js`, `sqlite-session-store.js`). Dort funktioniert sie auf demselben Plesk gegen dasselbe Active Directory.
 
-### 5.2 Rechte (Vorschlag)
+### 5.1 Was übernommen wird
+- **Zwei Anmelde-Modi:** Service-Modus (Service-Konto sucht, dann Bind mit der Benutzer-DN) und Direkt-Modus (`LDAP_BIND_USER_TEMPLATE`, z. B. `DOMAIN\{{username}}`).
+- **Pflichtgruppe** (`LDAP_REQUIRED_GROUP`, auch verschachtelte AD-Gruppen): nur Mitglieder dürfen sich überhaupt anmelden. Das löst das Problem, dass Auszubildende mit AD-Konto Freischaltungsanträge stellen könnten. Fehlermeldung „Konto gehört nicht zur Gruppe“.
+- **Konfiguration:** Plesk-Umgebungsvariablen (`LDAP_URL`, `LDAP_BASE_DN`, `LDAP_USER_FILTER`, `LDAP_LOGIN_ATTR`, `LDAP_NAME_ATTR`, `LDAP_TLS_CA_PFAD`, `LDAP_BIND_DN`, `LDAP_BIND_PW`) und optional Admin-Oberfläche mit verschlüsselt gespeichertem Service-Passwort.
+- **Login-Ratenbegrenzung** pro Benutzername mit exponentiellem Backoff, in SQLite gespeichert (übersteht Neustarts), Versuche während einer Sperre verlängern sie nicht (kein Aussperren Fremder).
+- **Admin-LDAP-Suche** („Lehrkräfte aus LDAP importieren“) wird zur Freischaltungs-Suche: Admin sucht eine Lehrkraft im Verzeichnis und schaltet sie vorab frei.
+- Rollen kommen **nicht** aus dem AD, sondern aus der eigenen DB.
+
+### 5.2 Was neu ist (Freischaltung)
+1. Nach erfolgreicher LDAP-Anmeldung wird die Person über `ldap_uid` (klein geschrieben) in `users` gesucht.
+2. `uid` steht in der Plesk-Variable **`ADMIN_USERS`** (kommagetrennt) → Rolle `admin`, Status `approved`. Das wird bei **jedem** Login neu aus der Variable bestimmt; wer entfernt wird, verliert die Rechte.
+3. Unbekannt → Status `pending`, Hinweis „Freischaltung durch Admin ausstehend“, kein Zugriff auf Dateien/Brillen. Der Admin sieht Anträge in der Benutzerverwaltung und schaltet frei oder sperrt (`blocked`).
+4. Alternativ schaltet der Admin per LDAP-Suche vorab frei (Konto steht dann schon als `approved`).
+5. Session-Cookie setzen. Brillen nutzen eigene Tokens und sind von LDAP-Ausfällen nicht betroffen.
+
+`noten_webapp` kennt zusätzlich `auto_provision` (Konto automatisch anlegen) und lokale Konten per `seed-admin`. Beides wird hier **nicht** übernommen: Anlegen nur als `pending`, kein lokales Passwort-Konto in V1 (Notfall-Admin: siehe offene Fragen).
+
+### 5.3 Rechte (Vorschlag)
 | Aktion | `pending` | `user` (freigeschaltet) | `admin` |
 |---|---|---|---|
 | Dateien ansehen, hochladen, eigene löschen | nein | ja | ja |
 | Fremde Dateien löschen | nein | nein | ja |
 | An Brillen senden | nein | ja | ja |
 | APK hochladen/installieren | nein | **nein** (Vorschlag) | ja |
-| Brillen koppeln/sperren/Gruppen verwalten | nein | nein | ja |
-| Benutzer freischalten/sperren | nein | nein | ja |
+| Brillen koppeln/sperren, Gruppen, Richtlinien | nein | nein | ja |
+| Benutzer freischalten/sperren, LDAP-Suche | nein | nein | ja |
 
-Das ist ein Vorschlag, bitte bestätigen (Abschnitt 14): gemeinsame Bibliothek für alle Freigeschalteten, APKs nur durch Admins.
+### 5.4 Konfiguration LernRaumVR (Plesk-Variablen)
+Wie in `noten_webapp` die `LDAP_*`-Variablen, dazu `ADMIN_USERS`, `SECRET` (Session + Verschlüsselung), `PUBLIC_URL`, `DATA_DIR`, optional `DB_ENCRYPTION_KEY`, `MAX_PARALLEL_DOWNLOADS`.
 
-### 5.3 Konfiguration (Plesk-Umgebungsvariablen)
-`ADMIN_USERS` (kommagetrennt), `LDAP_URL` (`ldaps://…`), `LDAP_BIND_DN`, `LDAP_BIND_PASSWORD`, `LDAP_BASE_DN`, `LDAP_USER_FILTER` (z. B. `(&(objectClass=person)(sAMAccountName={{username}})(memberOf=CN=Lehrkraefte,…))`), `LDAP_CA_FILE` (falls eigene CA), dazu `SESSION_SECRET`, `PUBLIC_URL`, `DATA_DIR`.
-
-### 5.4 Besonderheiten
-- **Filter einschränken:** Falls Auszubildende LDAP-Konten haben, soll der Filter nur Lehrkräfte durchlassen, sonst füllt sich die Freischaltungsliste und Lernende könnten sich einen Antrag stellen.
-- **LDAP-Injection:** Benutzername strikt escapen, nur zulässige Zeichen.
-- **Aussperren durch Fremde:** Wiederholte Fehlversuche können LDAP-Konten sperren. Deshalb Ratenbegrenzung pro Benutzername und IP **vor** dem LDAP-Aufruf.
-- **Ausfall:** Fällt LDAP aus, laufen bestehende Sessions und alle Brillen weiter. Kein lokales Notfall-Konto in V1 (Entscheidung offen).
-- **Datenschutz:** Gespeichert werden nur `ldap_uid`, Anzeigename, Status, Zeiten. Keine E-Mail-Adressen, keine Passwörter. Ins Verfahrensverzeichnis der Schule aufnehmen.
+### 5.5 Besonderheiten
+- **Ausfall:** Fällt LDAP aus, laufen bestehende Sessions und alle Brillen weiter.
+- **Datenschutz:** Gespeichert werden nur `ldap_uid`, Anzeigename, Status, Zeiten; keine Passwörter, keine E-Mail-Adressen. Ins Verfahrensverzeichnis aufnehmen (analog zu `noten_webapp`).
 
 ---
 
@@ -173,11 +177,15 @@ Maßnahmen in V1:
 4. SHA-256 vergleichen → `verified`; Abweichung → Datei löschen, `failed` (`HASH_MISMATCH`).
 5. `send`: verschieben + Media-Scan → `done`. `install`: siehe 7.3.
 
-### 7.3 APK-Installation (größtes Risiko)
-- **A – still** über das Pico-Enterprise-SDK (laut deiner Recherche für die G2 4K vorgesehen, Herkunft/Version unklar, nicht von mir geprüft).
-- **B – Standard-Android** als Rückfall: `REQUEST_INSTALL_PACKAGES`, „Unbekannte Quellen“ einmalig erlauben, Installer-Intent per `FileProvider`; Nutzer bestätigt in der Brille (`awaiting_confirmation` → `installed`).
+### 7.3 APK-Installation (Pico-SDK, bestätigt)
+Die Installation läuft **still über das Pico-SDK** und wurde von dir an der Brille erfolgreich getestet. Die App kapselt das hinter einem `ApkInstaller`-Interface (Standard-Android-Installer nur als Entwicklungs-Rückfall) und prüft den Erfolg per `PackageManager` (Paketname, Versionscode).
 
-Bei 33 Brillen ist Weg B mühsam (33× bestätigen), A ist deshalb deutlich wertvoller. Stand: Installation funktioniert, der Weg ist noch zu dokumentieren. Beide Wege hinter einem `ApkInstaller`-Interface; Erfolg wird per `PackageManager` verifiziert.
+Weil die Brille **nicht nachfragt**, trägt der Server die Verantwortung:
+- APK-Upload nur für Admins (V1), Paketname/Version/Signatur-Fingerprint werden beim Upload ausgelesen und angezeigt.
+- **Allowlist erlaubter Paketnamen** ist ab V1 Pflicht, nicht Option; optional zusätzlich der erwartete Signatur-Fingerprint.
+- Audit-Log für jede Installation (wer, was, wo).
+- Selbstupdate der LernRaumVR-App über denselben Weg, mit unveränderter Signatur-Keystore.
+- Zu dokumentieren: SDK-Version, Bezugsquelle, Lizenz (siehe Abschnitt 0); verfügbare Funktionen für Kiosk/Einstellungen sperren (siehe 7.5).
 
 ### 7.4 Offene Praxisfragen für Phase 0
 - Findet der Pico-Videoplayer Dateien in `Movies/` automatisch? Gibt es Namenskonventionen für 180°/360°/3D? (nicht geprüft)
@@ -295,17 +303,17 @@ Aufwände sind Schätzungen für eine Person mit Node-Erfahrung und etwas Androi
 
 | Phase | Inhalt | Fertig, wenn | Aufwand |
 |---|---|---|---|
-| **0 Machbarkeit** | **Brille:** Entwicklermodus, Test-App, Datei nach `Movies/`, Pico-Player, APK-Installation (A/B, **läuft bereits**, Weg dokumentieren), Standby, Dauertest Service, **Startapp-Test (HOME-Filter, Standard-App, Home-Taste), Möglichkeiten zum Sperren der Einstellungen (Pico-SDK, Device Owner)**, Bauen-vs-kaufen. **Plesk:** Hello-World mit WS, 2-GB-Upload (tus), Range-Download, `better-sqlite3`, ffprobe, Passenger-Verhalten, LDAPS-Verbindung zum Schul-LDAP | Video und APK kommen an; Plesk-Test bestanden oder Alternative benannt; `docs/phase0.md` | 3–5 Tage |
-| **1 Server** | Gerüst, Migrationen, **LDAP-Login, Freischaltung, Admin-Variable**, tus-Upload, SHA-256/ffprobe, Dateiliste, Löschen; Web: Login, Antrag-ausstehend-Seite, Upload, Liste, Benutzerverwaltung | 2-GB-Datei lässt sich unterbrechen und fortsetzen; neue LDAP-Person bleibt gesperrt bis zur Freischaltung | 5–8 Tage |
+| **0 Machbarkeit** | **Brille:** ~~APK-Installation~~ (läuft über Pico-SDK, Version/Quelle/Lizenz dokumentieren), Entwicklermodus, Datei nach `Movies/`, Pico-Player, Standby, Dauertest Service, **Startapp-Test (HOME-Filter, Standard-App, Home-Taste), Möglichkeiten zum Sperren der Einstellungen im Pico-SDK**, Bauen-vs-kaufen. **Plesk:** WS, 2-GB-Upload (tus), Range-Download, Passenger-Prozessmodell, ffprobe, Traffic-Kontingent | Datei/Video kommt an; Plesk-Test bestanden oder Alternative benannt; `docs/phase0.md` | 2–4 Tage |
+| **1 Server** | Gerüst, Migrationen, **LDAP-Login aus `noten_webapp` portieren, Freischaltung, `ADMIN_USERS`**, tus-Upload, SHA-256/ffprobe, Dateiliste, Löschen; Web: Login, Antrag-ausstehend-Seite, Upload, Liste, Benutzerverwaltung mit LDAP-Suche | 2-GB-Datei lässt sich unterbrechen und fortsetzen; neue LDAP-Person bleibt gesperrt bis zur Freischaltung | 4–6 Tage |
 | **2 Brillen-App** | Gerüst, **Launcher-Filter + einfache App-Liste (falls Phase 0 grünes Licht gibt)**, Kopplung, Service, Aufträge, Download mit Range, Prüfsumme, Ablage + Media-Scan; Web: Geräte, Kopplung, Einzelversand | Datei aus dem Browser liegt auf der gewählten Brille | 6–10 Tage |
 | **3 Status, Gruppen, APK** | Fortschritt/Heartbeat/Speicher live, Fehlerbilder, **Gruppen, Mehrfachversand, Download-Slots/Warteschlange**, APK-Installation, Selbstupdate, Abbrechen/Wiederholen | Weboberfläche zeigt Erfolg/Fehler; Versand an Gruppe aus 5 Brillen klappt mit Warteschlange | 5–8 Tage |
 | **4 Betrieb** | Rollout-Skript, HTTPS, Backup, **Lasttest mit 33 Brillen**, Test im Unterricht | Eine Unterrichtsstunde mit allen Brillen läuft ohne Eingriff | 3–5 Tage |
 | **5 Launcher & Richtlinien** | `policies`-Tabelle und Admin-Seite, `GET /api/device/policy`, Kiosk-Launcher mit App-Auswahl vom Server, Einstellungen sperren (je nach Phase-0-Weg), Notausstieg/Entsperrcode, Stufentest 1 → Gruppe → 33 Brillen | Eine Gruppe zeigt nur freigegebene Apps, Einstellungen sind gesperrt, Rückbau per Server klappt | 5–8 Tage |
 
-Summe: ca. 22–36 Arbeitstage für V1 (Phasen 0–4), dazu 5–8 Tage für Phase 5.
+Summe: ca. 20–33 Arbeitstage für V1 (Phasen 0–4), dazu 5–8 Tage für Phase 5.
 
 **Entscheidungspunkte:**
-- Ende Phase 0: Plesk tauglich (WS, Upload, Prozessmodell)? Stille Installation (A) oder Bestätigung (B)? Eigenbau oder Fertigprodukt? Dateikonventionen 180°/360°.
+- Ende Phase 0: Plesk tauglich (WS, Upload, Prozessmodell)? Reichen die Pico-SDK-Funktionen für Startapp/Sperren? Eigenbau oder Fertigprodukt? Dateikonventionen 180°/360°.
 - Ende Phase 2: reichen Polling + WS, oder sind Wake-Locks/Lade-Logik nötig?
 - Ende Phase 4: reicht der externe Server für 33 Brillen, oder lokaler Cache nötig?
 
@@ -313,18 +321,22 @@ Summe: ca. 22–36 Arbeitstage für V1 (Phasen 0–4), dazu 5–8 Tage für Phas
 
 ## 12. Betrieb auf Plesk
 
-Zu prüfen in Phase 0, Annahmen von mir, nicht auf deinem Server getestet:
+Grundlage: `noten_webapp` läuft bereits als Plesk-Node.js-App und zeigt, was funktioniert. Das wird übernommen:
 
-- **Node.js-Erweiterung:** Node-LTS-Version verfügbar? Startdatei, „Custom environment variables“ für `ADMIN_USERS` und LDAP-Zugang.
-- **Prozessmodell:** Passenger kann Instanzen starten, mehrere parallel betreiben und bei Leerlauf beenden. Wir brauchen **genau einen** dauerhaften Prozess (SQLite, WS-Zustand, Slot-Vergabe). Einstellung für maximal eine Instanz und Verhalten bei Leerlauf prüfen; sonst Betrieb als eigener Dienst/Docker.
-- **WebSocket** durch den vorgeschalteten nginx/Passenger; falls nicht möglich, reicht notfalls Polling (30 s) als Plan B.
-- **Große Uploads/Downloads:** `client_max_body_size`, Proxy-Puffer, Timeouts (über „Zusätzliche nginx-Anweisungen“); tus mit festen Chunk-Größen entschärft Puffer-Probleme. Downloads mit Range prüfen.
-- **Native Module:** lässt sich `better-sqlite3` auf dem Server bauen (Compiler/Python vorhanden)? Sonst Build in CI und fertiges Paket deployen oder `node:sqlite`.
-- **ffprobe:** vorhanden? Sonst statische Binärdatei in `DATA_DIR/bin`.
-- **Kontingente:** Plattenplatz (Dateien + `uploads/`-Zwischenspeicher), Traffic-Limit pro Monat (66 GB pro Klassensatz-Versand!), CPU/RAM-Limits.
-- **LDAP-Erreichbarkeit:** Liegt der Plesk-Server außerhalb des Schulnetzes, muss der LDAPS-Port von dort erreichbar sein (Firewall-Freigabe oder VPN). Das ist die wichtigste Abhängigkeit für die Anmeldung, siehe Abschnitt 14.
-- **Deployment:** CI baut `server` und `web`, Auslieferung per Plesk-Git oder SSH/rsync; Rollback = vorheriges Artefakt. Konfiguration nur über Variablen, keine Secrets im Repo.
-- **Backup:** nächtlich SQLite (`.backup`) + `files/`, Wiederherstellung einmal real testen (Plesk-Backup kann mitgenutzt werden).
+- **Node.js-Erweiterung** (Passenger), Node 22 aus `/opt/plesk/node/22`, App als **Ein-Prozess-Anwendung** ohne eigenen Reverse-Proxy.
+- **Deployment:** Git-Repository in Plesk verknüpfen (Deploy-Key bei GitHub), Bereitstellungsaktion `npm install` + `touch tmp/restart.txt` bzw. in der Plesk-UI „npm-Installation“ und „Anwendung neu starten“. Für TypeScript zusätzlich Build-Schritt (`npm run build`) in der Bereitstellungsaktion oder fertiges `dist/` aus der CI.
+- **Konfiguration:** nur Plesk-Umgebungsvariablen (siehe 5.4), keine Secrets im Repo.
+- **Dokumentenstamm** auf ein leeres `public/`-Verzeichnis, Daten (`DB`, `files/`, `uploads/`) **außerhalb** des Webverzeichnisses (z. B. unter `…/private/lernraumvr/`).
+- **Native Module:** `better-sqlite3` hat dort vorkompilierte Binaries bzw. `npm rebuild` als Rückfall (wie bei `noten_webapp`).
+- **Backup:** Plesk-Backup für die Datenbank plus `files/`; bei Verschlüsselung den Schlüssel getrennt sichern.
+- **LDAP-Erreichbarkeit** vom Plesk-Server ist damit bereits gegeben.
+
+Noch in Phase 0 zu prüfen (bei `noten_webapp` nicht nötig gewesen, nicht auf deinem Server getestet):
+- **WebSocket** über nginx/Passenger. Falls nicht möglich: Polling alle 30 s als Plan B.
+- **Sehr große Uploads/Downloads:** `client_max_body_size`, Puffer, Timeouts über „Zusätzliche nginx-Anweisungen“; Passenger kann Request-Bodys puffern, daher tus mit festen Chunk-Größen (8–32 MB). Range-Downloads über 2 GB testen.
+- **Ein Prozess:** Passenger-Einstellungen (maximal eine Instanz, Verhalten bei Leerlauf), weil Slot-Vergabe und WS-Zustand im Prozess liegen.
+- **ffprobe** vorhanden? Sonst statische Binärdatei in `DATA_DIR/bin`.
+- **Kontingente:** Plattenplatz und **monatlicher Traffic** (66 GB pro Klassensatz-Versand), CPU/RAM-Limits. Läuft LernRaumVR auf demselben Plesk-Abonnement wie `noten_webapp`, teilen sie sich diese Limits; deshalb eigene Subdomain/Abo bevorzugen (z. B. `lernraumvr.<domain>` nach dem Muster von `noten.bbz-rd-eck.com`).
 
 ---
 
@@ -332,16 +344,15 @@ Zu prüfen in Phase 0, Annahmen von mir, nicht auf deinem Server getestet:
 
 | Risiko | Gegenmaßnahme |
 |---|---|
-| Plesk-Node/Passenger passt nicht (WS, ein Prozess, Uploads) | Phase-0-Test; Plan B: Polling, Docker/Dienst auf eigener VM |
-| LDAP vom Plesk-Server aus nicht erreichbar | früh klären; VPN/Firewall-Regel; Notlösung Proxy im Schulnetz |
-| Stille Installation nicht möglich | Weg B als Rückfall; bei 33 Brillen aufwendig, daher früh klären |
+| Plesk-Node/Passenger passt nicht für WS und sehr große Uploads (Grundbetrieb ist durch `noten_webapp` belegt) | Phase-0-Test; Plan B: Polling, Docker/Dienst auf eigener VM |
+| LDAP-Konten werden durch Fremde gesperrt oder Unberechtigte melden sich an | Ratenbegrenzung wie `noten_webapp` (keine Verlängerung während Sperre), Pflichtgruppe |
+| Stille Installation verteilt unbemerkt eine schädliche APK | nur Admin darf APK hochladen, Paketname-Allowlist (+ Signatur-Fingerprint), Audit-Log |
 | Serverleitung/WLAN bei 33 Brillen zu langsam | Download-Slots, vorab senden, Lasttest, später lokaler Cache |
 | Traffic-Kontingent des Hostings überschritten | Kontingent prüfen, Dateien klein halten, Cache-Option |
 | Service wird im Standby beendet / Brille offline | Phase-0-Test, Watchdog, Autostart, Akku-Optimierung ausnehmen, am Ladegerät lassen |
 | Fremde Home-App/Kiosk wird von der Pico-Oberfläche nicht akzeptiert oder lässt sich umgehen | Phase-0-Test; Rückfall: Launcher nur auf App-Ebene, Sperren per Pico-SDK/Device Owner oder gar nicht |
 | Gesperrte Einstellungen machen Brillen unbrauchbar (z. B. kein WLAN-Wechsel) | Stufentest, Entsperrcode, Rückbau per Server, WLAN-Zugang bleibt erlaubt, USB-Debugging für Admins |
 | Schad-APKs | HTTPS, LDAP + Freischaltung, APK nur Admin, Allowlist, Token sperrbar |
-| LDAP-Konten werden durch Fehlversuche gesperrt | Ratenbegrenzung vor LDAP, nur Lehrkräfte-Filter |
 | Video läuft nicht | ffprobe beim Upload, Warnung bei ungeeignetem Codec/Auflösung |
 | Speicher der Brille voll | Heartbeat, Prüfung vor dem Senden, `NO_SPACE` |
 | Datenschutz, Urheberrecht | nur Lehrkräfte-Daten (uid/Name), nur nutzungsberechtigtes Material, Abstimmung mit der Schule |
@@ -351,14 +362,15 @@ Zu prüfen in Phase 0, Annahmen von mir, nicht auf deinem Server getestet:
 
 ## 14. Offene Fragen
 
-1. **LDAP:** Welcher Server (Active Directory, OpenLDAP, anderes), welche Attribute (`sAMAccountName`/`uid`), gibt es eine Gruppe für Lehrkräfte? Ist der Server von Plesk aus per LDAPS erreichbar, und gibt es ein Service-Konto?
-2. **Plesk:** Shared Hosting oder VPS/eigener Server? Schulserver oder externer Anbieter (wegen Traffic-Kontingent und LDAP-Erreichbarkeit)? Welche Node-Version bietet Plesk?
+1. ~~LDAP~~ **geklärt:** wie `noten_webapp` (Active Directory, Pflichtgruppe, Erreichbarkeit vom Plesk gegeben). Noch festzulegen: welche AD-Gruppe (Lehrkräfte) als `LDAP_REQUIRED_GROUP` für LernRaumVR gilt.
+2. **Plesk:** eigene Subdomain/Abo für LernRaumVR oder Mitnutzung des Abos von `noten_webapp`? Wie viel Traffic und Plattenplatz sind inklusive?
 3. **Rechte:** Gemeinsame Dateibibliothek für alle Freigeschalteten? APKs nur durch Admins? Dürfen alle Freigeschalteten an alle Brillen senden?
 4. **Notfall-Zugang:** Soll es ein lokales Notfall-Admin-Konto geben, falls LDAP ausfällt (Vorschlag: nein in V1)?
 5. **Domain und Paketname** (z. B. `de.<domain>.lernraumvr`), da der Android-Paketname später nicht mehr geändert werden sollte.
 6. **Brille:** genaue Gerätevariante/Firmware, Entwicklermodus schon aktiv?
 7. **WLAN:** Wie viele Access Points im Raum, welche Bandbreite zum Internet?
-8. **Startapp/Sperren:** Welchen Weg hat die APK-Installation genommen (still über Pico-SDK oder mit Bestätigung)? Welche Funktionen bietet das SDK für Kiosk/Einstellungen sperren, und ist die Brille bereits in einem Unternehmens-/Business-Modus?
+8. **Startapp/Sperren:** Welche Funktionen bietet das Pico-SDK dafür (Kiosk, Einstellungen sperren, Standard-Launcher setzen)? Ist die Brille in einem Unternehmens-/Business-Modus?
+9. **Datenbank:** Soll die SQLite-Datei wie bei `noten_webapp` verschlüsselt werden (`DB_ENCRYPTION_KEY`) oder reicht Klartext, weil keine Notendaten enthalten sind?
 
 ---
 
@@ -375,10 +387,11 @@ Zu prüfen in Phase 0, Annahmen von mir, nicht auf deinem Server getestet:
 
 ## 16. Erste Schritte
 
-- [ ] LDAP-Eckdaten klären (Fragen 1 und 2) und Erreichbarkeit vom Plesk-Server testen (`openssl s_client`/`ldapsearch`)
-- [ ] Plesk: Node.js-Version, Prozessmodell, WS, nginx-Anweisungen, Traffic- und Plattenkontingent prüfen
+- [x] LDAP: Umsetzung wie `noten_webapp` festgelegt, APK-Installation per Pico-SDK läuft
+- [ ] AD-Gruppe für LernRaumVR festlegen, Subdomain/Plesk-Abo klären
+- [ ] Plesk: WebSocket, nginx-Anweisungen für Große-Datei-Upload/Download, Passenger-Instanzen, Traffic-/Plattenkontingent prüfen
 - [ ] Gerätevariante, Android-Version, Firmware der Brille notieren; Entwicklermodus + USB-Debugging aktivieren
-- [ ] Test-APK per `adb install`, 2D-Bedienbarkeit prüfen; Testvideo nach `Movies/` kopieren, im Pico-Player öffnen
-- [ ] Pico-SDK-Herkunft klären (Version, Quelle, Lizenz), stille Installation testen
+- [ ] Testvideo nach `Movies/` kopieren, im Pico-Player öffnen; 2D-Bedienbarkeit der App prüfen
+- [ ] Pico-SDK: Version, Quelle, Lizenz dokumentieren; Funktionen für Startapp/Kiosk/Sperren prüfen
 - [ ] Bauen-vs-kaufen-Recherche (ArborXR, ManageXR, Pico Business Suite)
 - [ ] Repo-Gerüst (`server`, `web`, `headset`) anlegen
