@@ -1,6 +1,6 @@
 # LernRaumVR – Umsetzungsplan
 
-Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 4 (LDAP wie `noten_webapp`, APK-Installation per Pico-SDK bestätigt)
+Stand: 26.11.2026 · Grundlage: erste Idee von Till · Status: Entwurf 5 (AD-Gruppe, Subdomain, verschlüsselte DB, sehr große Inhalte)
 
 Ziel: Lehrkräfte laden Videos, Bilder, APKs und andere Dateien im Browser hoch und senden sie an PICO G2 4K. Die Brille holt sich die Aufträge selbst ab, sobald sie online ist. Der Server kann nichts auf die Brille schieben, deshalb fragt eine kleine App auf der Brille nach.
 
@@ -12,8 +12,10 @@ Ziel: Lehrkräfte laden Videos, Bilder, APKs und andere Dateien im Browser hoch 
 |---|---|
 | Projektname | **LernRaumVR** („Lernblick“ entfällt) |
 | Anzahl Brillen | **33** (Klassensatz) |
-| Hosting | **Plesk-Server** |
-| Anmeldung | **LDAP, umgesetzt wie in `noten_webapp`** (Repo `deraal09/noten_webapp`: Active Directory, `ldapts`, Pflichtgruppe, Ratenbegrenzung) |
+| Hosting | **Plesk-Server**, Subdomain **`lernraumvr.bbz-rd-eck.com`** |
+| Anmeldung | **LDAP, umgesetzt wie in `noten_webapp`** (Active Directory, `ldapts`, Ratenbegrenzung); Pflichtgruppe **`AAD-LUL`** (`LDAP_REQUIRED_GROUP`) |
+| Datenbank | SQLite via `better-sqlite3-multiple-ciphers` (wie `noten_webapp`), `DB_ENCRYPTION_KEY` Pflicht | WAL; **ein** Serverprozess; Verschlüsselungs-/Migrationslogik aus `noten_webapp/src/db.js` übernehmen. Schlüssel getrennt vom Backup sichern. Die Dateien selbst werden nicht verschlüsselt |
+| Inhalte | werden **sehr groß** und wachsen; Upload, Speicher und Verteilung sind darauf ausgelegt (Abschnitt 6.1) |
 | Wer darf hochladen | Personen mit LDAP-Zugang **und** Freischaltung durch einen Admin auf der Plattform |
 | Admins | Benutzernamen in einer **Plesk-Umgebungsvariable** (`ADMIN_USERS`) |
 | Brillen-App | soll die **Startapp (Launcher)** der Brille werden; später verwaltet sie die App-Auswahl und sperrt die Einstellungen (Abschnitt 7.5) |
@@ -49,7 +51,7 @@ Folgen daraus, die den ersten Entwurf ändern:
 |---|---|---|
 | Anmeldung | LDAP + Freischaltung durch Admin, Admin per Umgebungsvariable | feinere Rollen, SSO |
 | Benutzerverwaltung | Admin-Seite: freischalten, sperren | Gruppen/Fachbereiche |
-| Dateien hochladen/verwalten | ja (fortsetzbar, Liste, Löschen) | Ordner, Schlagworte |
+| Dateien hochladen/verwalten | ja, **auch sehr große** (fortsetzbar, Speicherübersicht, Löschen) | Ordner, Schlagworte |
 | Brillen koppeln, Status sehen | ja, Übersicht für 33 Geräte | |
 | Senden | an einzelne, **mehrere und Gruppen** gleichzeitig | Zeitpläne |
 | Warteschlange/Download-Begrenzung | ja | lokaler Cache im Schulnetz |
@@ -92,8 +94,8 @@ Nicht Teil von V1: Zeitpläne, Transcoding, Fernsteuerung, Unterrichtspakete, Or
 |---|---|---|
 | Server | Node.js LTS (Plesk-Node 22 wie bei `noten_webapp`), Fastify, TypeScript | gleiche Fastify-Hauptversion wie `noten_webapp` (v4), damit Plugins und Code 1:1 übernommen werden können; Zod/TypeBox zur Validierung. `noten_webapp` ist reines JavaScript, hier TypeScript wegen der größeren API |
 | LDAP | `ldapts` (wie `noten_webapp`) | `src/auth/ldap.js` portieren: Service-Modus und Direkt-Bind-Modus, RFC-4515-Escaping, Pflichtgruppe auch verschachtelt (AD-Regel `1.2.840.113556.1.4.1941`), Verzeichnissuche für Admins |
-| Upload | tus (`@tus/server`, `FileStore`) | feste Chunk-Größe (z. B. 8–32 MB), nach Abschluss SHA-256, ffprobe, Verschieben in `files/` |
-| Download | eigener Fastify-Handler mit `Range` | `206`, `ETag` = SHA-256, Auth per Gerätetoken, Slot-Vergabe (Abschnitt 6) |
+| Upload | tus (`@tus/server`, `FileStore`) | Chunks 32–64 MB, Vorab-Prüfung von Größe/Platz/Kontingent, Nachverarbeitung (SHA-256, ffprobe) als Hintergrundjob im Worker-Thread, Abschluss per `rename` (gleiches Dateisystem); Details in 6.1 |
+| Download | eigener Fastify-Handler mit `Range` | `206`, `ETag` = SHA-256, Auth per Gerätetoken, Slot-Vergabe (6.2), Blockhash-Manifest für große Dateien |
 | Datenbank | SQLite, `better-sqlite3`, SQL-Migrationen | WAL; **ein** Serverprozess. `noten_webapp` nutzt `better-sqlite3-multiple-ciphers` mit `DB_ENCRYPTION_KEY`; hier optional (keine Notendaten), Entscheidung offen |
 | Sessions | `@fastify/session` mit SQLite-Store (wie `noten_webapp`), Cookie `HttpOnly; Secure; SameSite=Strict` | |
 | Web | Vite + TypeScript, Preact oder Vanilla | `tus-js-client` |
@@ -137,7 +139,7 @@ Die Anmeldung wird aus `noten_webapp` übernommen (Quelle: `src/auth/ldap.js`, `
 | Benutzer freischalten/sperren, LDAP-Suche | nein | nein | ja |
 
 ### 5.4 Konfiguration LernRaumVR (Plesk-Variablen)
-Wie in `noten_webapp` die `LDAP_*`-Variablen, dazu `ADMIN_USERS`, `SECRET` (Session + Verschlüsselung), `PUBLIC_URL`, `DATA_DIR`, optional `DB_ENCRYPTION_KEY`, `MAX_PARALLEL_DOWNLOADS`.
+Wie in `noten_webapp` die `LDAP_*`-Variablen (`LDAP_REQUIRED_GROUP=AAD-LUL`), dazu `ADMIN_USERS`, `SECRET` (Session + Verschlüsselung), `DB_ENCRYPTION_KEY` (**Pflicht**), `DB_PFAD`, `DATA_DIR`, `PUBLIC_URL`, `MAX_UPLOAD_BYTES`, `MIN_FREE_BYTES`, `MAX_PARALLEL_DOWNLOADS`.
 
 ### 5.5 Besonderheiten
 - **Ausfall:** Fällt LDAP aus, laufen bestehende Sessions und alle Brillen weiter.
@@ -145,7 +147,36 @@ Wie in `noten_webapp` die `LDAP_*`-Variablen, dazu `ADMIN_USERS`, `SECRET` (Sess
 
 ---
 
-## 6. Versand an 33 Brillen
+## 6. Große Dateien und Versand an 33 Brillen
+
+### 6.1 Sehr große Inhalte: Upload, Speicher, Verteilung
+
+Annahme: Einzeldateien im zweistelligen GB-Bereich (z. B. 360°-Videos, Apps mit Datenpaketen), Gesamtbestand wächst bis in den TB-Bereich. Konkrete Größen sind offen (Frage 10); der Entwurf behandelt 50 GB je Datei nicht als Sonderfall.
+
+**Upload**
+1. **tus mit großen Chunks** (32–64 MB, `tus-js-client`), Wiederholung mit Backoff, Fortsetzen nach Browser-Neustart oder Netzwechsel (gemerkter Upload), Anzeige von Fortschritt und Restzeit, Hinweis „Tab offen lassen“. Das `client_max_body_size` von nginx gilt je Chunk, nicht je Datei. Phase 0 prüft, ob Plesk/Passenger Chunks puffert (Plattenplatz, Zeitlimits).
+2. **Vorabprüfung** beim Anlegen (`POST /api/uploads`): angekündigte Größe ≤ `MAX_UPLOAD_BYTES`, freier Platz ≥ Größe + Reserve (`MIN_FREE_BYTES`), Kontingent der Person nicht überschritten. Abgelehnt wird **vor** dem Übertragen von 30 GB, mit klarer Meldung.
+3. **Kein Puffern im Arbeitsspeicher:** Streaming auf Platte. `uploads/` und `files/` liegen auf **demselben Dateisystem**, damit der Abschluss ein `rename` ist und nicht eine Kopie von 30 GB.
+4. **Nachverarbeitung als Hintergrundjob** (Status `processing`): SHA-256 und Blockhashes, ffprobe, APK-Analyse. Läuft im Worker-Thread, höchstens 1–2 Jobs parallel, damit der Server reaktionsfähig bleibt. Erst danach `ready`; erst dann ist Versand möglich. Unterbrochene Jobs werden nach einem Neustart wieder aufgenommen.
+5. **Aufräumen:** unvollständige Uploads verfallen nach 48 h (täglicher Cleanup); Konsistenzprüfung findet Dateien ohne Eintrag und Einträge ohne Datei.
+6. **Parallelität begrenzen:** z. B. 2 Uploads je Person, 4 insgesamt.
+7. **Server-Import als Alternative zum Browser:** Admin legt Dateien per SFTP/SSH in `DATA_DIR/import/`, LernRaumVR registriert sie (Hash, Analyse) ohne Browser-Upload. Sinnvoll, wenn ein Browser-Upload Stunden dauern würde.
+8. **Neustarts überstehen:** Deployment oder Passenger-Recycling dürfen Uploads und Transfers nicht zerstören. tus-Zustand liegt auf der Platte; beim Start werden Slots zurückgesetzt und Jobs wieder aufgenommen. Deployments trotzdem außerhalb von Upload- und Unterrichtszeiten.
+
+**Speicher**
+- **`StorageBackend`-Schnittstelle** (`put`, `stat`, `openRange`, `delete`). V1: lokales Dateisystem unter `DATA_DIR`. Später austauschbar (Netzlaufwerk, S3-kompatibler Speicher), ohne die API zu ändern. Dateien liegen unter `files/<id>`, nie unter dem Originalnamen.
+- **Kontingente:** Plattenplatz (Dateien + `uploads/` + `import/` + Verarbeitungsreserve), **monatlicher Traffic**, CPU/RAM-Limits. Wegen `noten_webapp` auf demselben Server die Limits des Abos klären. Subdomain: `lernraumvr.bbz-rd-eck.com`.
+- **Duplikate:** nach der Verarbeitung Hinweis, wenn dieselbe SHA-256 schon existiert.
+- **Löschen** nur ohne offene Transfers; Papierkorb später.
+- **Backup:** Datenbank täglich (Schlüssel `DB_ENCRYPTION_KEY` getrennt sichern). Inhalte voraussichtlich nicht im Plesk-Gesamtbackup, siehe 6.1 und Frage 11.
+
+**Verteilung großer Dateien an die Brillen**
+- **Download mit `Range`** und Fortsetzen über Tage hinweg (`.part` auf der Brille).
+- **Blockhashes** (z. B. je 64 MB) im Manifest: die Brille prüft jeden Block beim Laden, bei Fehlern wird nur dieser Block neu geholt, am Ende entfällt langes Voll-Hashing. Die Gesamt-SHA-256 bleibt Referenz. Empfohlen ab etwa 2 GB.
+- **Speicher der Brille:** vor dem Senden freien Platz prüfen (Datei + 10 % Reserve). Der Speicher der G2 4K ist begrenzt (Modell prüfen). Neuer Auftragstyp `remove`, der Dateien von der Brille löscht; der Heartbeat liefert die Liste der vorhandenen Inhalte.
+- **Traffic:** Größe × 33. Ein 20-GB-Inhalt sind 660 GB je Klassensatz und überschreiten vermutlich ein Plesk-Kontingent. Der **lokale Cache im Schulnetz** wird deshalb von „später“ zu „früh einplanen“ (Phase 6, bedingt, nach der Messung des Traffic-Kontingents in Phase 0): ein kleiner Server im Schulnetz holt die Datei einmal vom Plesk-Server und verteilt sie im LAN an die Brillen. Das Protokoll ist vorbereitet, weil die Download-URL im Auftrag steht und nicht fest in der App.
+
+### 6.2 Versand an 33 Brillen
 
 Ein 2-GB-Video an 33 Brillen sind **66 GB**. Der Engpass ist meist das schulische WLAN (geteilte Access Points) oder die Upload-Rate/das Traffic-Kontingent des Plesk-Servers, nicht die Rechenleistung.
 
@@ -221,9 +252,10 @@ Ja, das ist machbar zu planen, die Umsetzung hängt aber davon ab, was die G2 4K
 ### 8.1 Tabellen
 | Tabelle | Felder (Auswahl) |
 |---|---|
-| `users` | id, ldap_uid (unique, klein), display_name, role (`user`/`admin`), status (`pending`/`approved`/`blocked`), created_at, last_login_at |
+| `users` | id, ldap_uid (unique, klein), display_name, role (`user`/`admin`), status (`pending`/`approved`/`blocked`), quota_bytes, created_at, last_login_at |
 | `sessions` | id, user_id, expires_at, created_at |
-| `files` | id, name, original_name, typ (`video`/`image`/`apk`/`other`), mime, groesse, sha256, pfad, meta (JSON), warnungen (JSON), uploaded_by, created_at |
+| `files` | id, name, original_name, typ (`video`/`image`/`apk`/`other`), mime, groesse, sha256, status (`uploading`/`processing`/`ready`/`failed`), storage_backend, storage_key, block_size, duplicate_of, meta (JSON), warnungen (JSON), uploaded_by, created_at (Blockhashes als Datei `files/<id>.blocks`) |
+| `uploads` | tus_id, user_id, file_id, laenge, expires_at, created_at |
 | `devices` | id, name, token_hash, last_seen_at, freier_speicher, app_version, android_version, revoked_at, created_at |
 | `device_groups`, `device_group_members` | Gruppen und Zuordnung |
 | `policies` | id, name, kiosk (bool), einstellungen_gesperrt (bool), apps (JSON: Paketname, Titel, Reihenfolge), version, updated_at |
@@ -245,6 +277,8 @@ Browser (Session-Cookie, jeweils nur für `approved`, wo nicht anders vermerkt):
 | `POST /api/login`, `POST /api/logout`, `GET /api/me` | LDAP-Anmeldung; `/me` liefert Status (`pending` sichtbar) |
 | `* /api/uploads/…` | tus-Upload |
 | `GET /api/files`, `DELETE /api/files/:id` | auflisten, löschen |
+| `GET /api/storage` | Speicherbelegung, Kontingent (Admin: alle) |
+| `POST /api/admin/import` | Dateien aus `import/` registrieren (Admin, Phase 3) |
 | `GET /api/devices`, `PATCH`/`DELETE /api/devices/:id` | Status, umbenennen, sperren (Admin) |
 | `POST /api/devices/confirm` | Kopplungscode bestätigen (Admin) |
 | `GET/POST/PATCH /api/groups…` | Gruppen (Admin) |
@@ -260,6 +294,7 @@ Brille (`Authorization: Bearer <Token>`):
 | `POST /api/pairing`, `GET /api/pairing/:id` | Code + Geheimnis anfordern; Token einmalig abholen |
 | `GET /api/device/transfers` | startberechtigte Aufträge (Slots) |
 | `GET /api/device/files/:id` | Download, `Range`, `ETag` |
+| `GET /api/device/files/:id/blocks` | Blockhash-Manifest für große Dateien |
 | `PATCH /api/device/transfers/:id` | Status, `bytes_done`, Fehler |
 | `POST /api/device/heartbeat` | Speicher, App-Version, Akku, installierte Apps, angewendete Richtlinien-Version |
 | `GET /api/device/policy` | gültige Richtlinie (App-Liste, Kiosk, Sperren), ab Phase 5 |
@@ -304,13 +339,14 @@ Aufwände sind Schätzungen für eine Person mit Node-Erfahrung und etwas Androi
 | Phase | Inhalt | Fertig, wenn | Aufwand |
 |---|---|---|---|
 | **0 Machbarkeit** | **Brille:** ~~APK-Installation~~ (läuft über Pico-SDK, Version/Quelle/Lizenz dokumentieren), Entwicklermodus, Datei nach `Movies/`, Pico-Player, Standby, Dauertest Service, **Startapp-Test (HOME-Filter, Standard-App, Home-Taste), Möglichkeiten zum Sperren der Einstellungen im Pico-SDK**, Bauen-vs-kaufen. **Plesk:** WS, 2-GB-Upload (tus), Range-Download, Passenger-Prozessmodell, ffprobe, Traffic-Kontingent | Datei/Video kommt an; Plesk-Test bestanden oder Alternative benannt; `docs/phase0.md` | 2–4 Tage |
-| **1 Server** | Gerüst, Migrationen, **LDAP-Login aus `noten_webapp` portieren, Freischaltung, `ADMIN_USERS`**, tus-Upload, SHA-256/ffprobe, Dateiliste, Löschen; Web: Login, Antrag-ausstehend-Seite, Upload, Liste, Benutzerverwaltung mit LDAP-Suche | 2-GB-Datei lässt sich unterbrechen und fortsetzen; neue LDAP-Person bleibt gesperrt bis zur Freischaltung | 4–6 Tage |
+| **1 Server** | Gerüst, Migrationen, verschlüsselte DB, **LDAP-Login aus `noten_webapp` portieren (Pflichtgruppe `AAD-LUL`), Freischaltung, `ADMIN_USERS`**, tus-Upload mit Vorabprüfung (Größe, Platz, Kontingent), Nachverarbeitung im Worker, Cleanup, Dateiliste, Löschen; Web: Login, Antrag-ausstehend-Seite, Upload, Liste, Benutzerverwaltung mit LDAP-Suche | 2-GB-Datei lässt sich abbrechen und fortsetzen, Hash stimmt; Test mit ≥ 20-GB-Datei; neue LDAP-Person bleibt gesperrt bis zur Freischaltung | 5–7 Tage |
 | **2 Brillen-App** | Gerüst, **Launcher-Filter + einfache App-Liste (falls Phase 0 grünes Licht gibt)**, Kopplung, Service, Aufträge, Download mit Range, Prüfsumme, Ablage + Media-Scan; Web: Geräte, Kopplung, Einzelversand | Datei aus dem Browser liegt auf der gewählten Brille | 6–10 Tage |
-| **3 Status, Gruppen, APK** | Fortschritt/Heartbeat/Speicher live, Fehlerbilder, **Gruppen, Mehrfachversand, Download-Slots/Warteschlange**, APK-Installation, Selbstupdate, Abbrechen/Wiederholen | Weboberfläche zeigt Erfolg/Fehler; Versand an Gruppe aus 5 Brillen klappt mit Warteschlange | 5–8 Tage |
+| **3 Status, Gruppen, APK, große Dateien** | Fortschritt/Heartbeat/Speicher live, Fehlerbilder, **Gruppen, Mehrfachversand, Download-Slots/Warteschlange**, APK-Installation, Selbstupdate, Abbrechen/Wiederholen, **Blockhashes, Server-Import, Speicherübersicht, Auftrag `remove`** | Weboberfläche zeigt Erfolg/Fehler; Versand an Gruppe aus 5 Brillen klappt mit Warteschlange; 20-GB-Datei kommt mit Blockprüfung an | 7–10 Tage |
 | **4 Betrieb** | Rollout-Skript, HTTPS, Backup, **Lasttest mit 33 Brillen**, Test im Unterricht | Eine Unterrichtsstunde mit allen Brillen läuft ohne Eingriff | 3–5 Tage |
 | **5 Launcher & Richtlinien** | `policies`-Tabelle und Admin-Seite, `GET /api/device/policy`, Kiosk-Launcher mit App-Auswahl vom Server, Einstellungen sperren (je nach Phase-0-Weg), Notausstieg/Entsperrcode, Stufentest 1 → Gruppe → 33 Brillen | Eine Gruppe zeigt nur freigegebene Apps, Einstellungen sind gesperrt, Rückbau per Server klappt | 5–8 Tage |
+| **6 Lokaler Cache** (bedingt) | kleiner Server im Schulnetz, holt Inhalte einmal vom Plesk-Server und verteilt im LAN; App versucht zuerst die lokale Adresse, dann Plesk | 33 Brillen laden einen 20-GB-Inhalt, ohne dass der Plesk-Traffic 33-fach anfällt | 4–6 Tage |
 
-Summe: ca. 20–33 Arbeitstage für V1 (Phasen 0–4), dazu 5–8 Tage für Phase 5.
+Summe: ca. 23–36 Arbeitstage für V1 (Phasen 0–4), dazu 5–8 Tage für Phase 5 und bedingt 4–6 Tage für Phase 6.
 
 **Entscheidungspunkte:**
 - Ende Phase 0: Plesk tauglich (WS, Upload, Prozessmodell)? Reichen die Pico-SDK-Funktionen für Startapp/Sperren? Eigenbau oder Fertigprodukt? Dateikonventionen 180°/360°.
@@ -333,7 +369,7 @@ Grundlage: `noten_webapp` läuft bereits als Plesk-Node.js-App und zeigt, was fu
 
 Noch in Phase 0 zu prüfen (bei `noten_webapp` nicht nötig gewesen, nicht auf deinem Server getestet):
 - **WebSocket** über nginx/Passenger. Falls nicht möglich: Polling alle 30 s als Plan B.
-- **Sehr große Uploads/Downloads:** `client_max_body_size`, Puffer, Timeouts über „Zusätzliche nginx-Anweisungen“; Passenger kann Request-Bodys puffern, daher tus mit festen Chunk-Größen (8–32 MB). Range-Downloads über 2 GB testen.
+- **Sehr große Uploads/Downloads (Details 6.1):** `client_max_body_size` je Chunk, Puffer, Timeouts über „Zusätzliche nginx-Anweisungen“; Passenger kann Request-Bodys puffern, daher tus mit festen Chunk-Größen (32–64 MB) und Test mit einer Datei ≥ 20 GB samt Unterbrechung. Range-Downloads über 2 GB testen. Prüfen, ob `uploads/` und `files/` auf demselben Dateisystem liegen.
 - **Ein Prozess:** Passenger-Einstellungen (maximal eine Instanz, Verhalten bei Leerlauf), weil Slot-Vergabe und WS-Zustand im Prozess liegen.
 - **ffprobe** vorhanden? Sonst statische Binärdatei in `DATA_DIR/bin`.
 - **Kontingente:** Plattenplatz und **monatlicher Traffic** (66 GB pro Klassensatz-Versand), CPU/RAM-Limits. Läuft LernRaumVR auf demselben Plesk-Abonnement wie `noten_webapp`, teilen sie sich diese Limits; deshalb eigene Subdomain/Abo bevorzugen (z. B. `lernraumvr.<domain>` nach dem Muster von `noten.bbz-rd-eck.com`).
@@ -348,7 +384,9 @@ Noch in Phase 0 zu prüfen (bei `noten_webapp` nicht nötig gewesen, nicht auf d
 | LDAP-Konten werden durch Fremde gesperrt oder Unberechtigte melden sich an | Ratenbegrenzung wie `noten_webapp` (keine Verlängerung während Sperre), Pflichtgruppe |
 | Stille Installation verteilt unbemerkt eine schädliche APK | nur Admin darf APK hochladen, Paketname-Allowlist (+ Signatur-Fingerprint), Audit-Log |
 | Serverleitung/WLAN bei 33 Brillen zu langsam | Download-Slots, vorab senden, Lasttest, später lokaler Cache |
-| Traffic-Kontingent des Hostings überschritten | Kontingent prüfen, Dateien klein halten, Cache-Option |
+| Traffic-Kontingent des Hostings überschritten (bei großen Inhalten × 33 Brillen schnell) | Kontingent in Phase 0 messen/erfragen, Download-Slots, Phase 6 (lokaler Cache) |
+| Platte läuft voll, Uploads brechen ab | Vorabprüfung (Größe, `MIN_FREE_BYTES`, Kontingent), Speicherübersicht, Cleanup, `StorageBackend` austauschbar, Server-Import |
+| Backup der großen Inhalte nicht möglich | Strategie festlegen (Frage 11); Metadaten/DB immer sichern |
 | Service wird im Standby beendet / Brille offline | Phase-0-Test, Watchdog, Autostart, Akku-Optimierung ausnehmen, am Ladegerät lassen |
 | Fremde Home-App/Kiosk wird von der Pico-Oberfläche nicht akzeptiert oder lässt sich umgehen | Phase-0-Test; Rückfall: Launcher nur auf App-Ebene, Sperren per Pico-SDK/Device Owner oder gar nicht |
 | Gesperrte Einstellungen machen Brillen unbrauchbar (z. B. kein WLAN-Wechsel) | Stufentest, Entsperrcode, Rückbau per Server, WLAN-Zugang bleibt erlaubt, USB-Debugging für Admins |
@@ -362,15 +400,17 @@ Noch in Phase 0 zu prüfen (bei `noten_webapp` nicht nötig gewesen, nicht auf d
 
 ## 14. Offene Fragen
 
-1. ~~LDAP~~ **geklärt:** wie `noten_webapp` (Active Directory, Pflichtgruppe, Erreichbarkeit vom Plesk gegeben). Noch festzulegen: welche AD-Gruppe (Lehrkräfte) als `LDAP_REQUIRED_GROUP` für LernRaumVR gilt.
-2. **Plesk:** eigene Subdomain/Abo für LernRaumVR oder Mitnutzung des Abos von `noten_webapp`? Wie viel Traffic und Plattenplatz sind inklusive?
+1. ~~LDAP~~ **geklärt:** wie `noten_webapp`, Pflichtgruppe `AAD-LUL`.
+2. ~~Subdomain~~ **geklärt:** `lernraumvr.bbz-rd-eck.com`. Noch zu klären: Wie viel Plattenplatz und Traffic hat das Abo? Teilt es sich Limits mit `noten_webapp`?
 3. **Rechte:** Gemeinsame Dateibibliothek für alle Freigeschalteten? APKs nur durch Admins? Dürfen alle Freigeschalteten an alle Brillen senden?
 4. **Notfall-Zugang:** Soll es ein lokales Notfall-Admin-Konto geben, falls LDAP ausfällt (Vorschlag: nein in V1)?
-5. **Domain und Paketname** (z. B. `de.<domain>.lernraumvr`), da der Android-Paketname später nicht mehr geändert werden sollte.
+5. **Paketname:** Domain steht fest; Vorschlag `com.bbzrdeck.lernraumvr` (Bindestriche sind in Android-Paketnamen nicht erlaubt). Vor dem ersten Release festlegen, später praktisch nicht änderbar.
 6. **Brille:** genaue Gerätevariante/Firmware, Entwicklermodus schon aktiv?
 7. **WLAN:** Wie viele Access Points im Raum, welche Bandbreite zum Internet?
-8. **Startapp/Sperren:** Welche Funktionen bietet das Pico-SDK dafür (Kiosk, Einstellungen sperren, Standard-Launcher setzen)? Ist die Brille in einem Unternehmens-/Business-Modus?
-9. **Datenbank:** Soll die SQLite-Datei wie bei `noten_webapp` verschlüsselt werden (`DB_ENCRYPTION_KEY`) oder reicht Klartext, weil keine Notendaten enthalten sind?
+8. **Startapp/Sperren (offen, Till klärt):** Welche Funktionen bietet das Pico-SDK dafür (Kiosk, Einstellungen sperren, Standard-Launcher setzen)? Ist die Brille in einem Unternehmens-/Business-Modus?
+9. ~~Datenbank~~ **geklärt:** verschlüsselt wie `noten_webapp`.
+10. **Größenordnung:** Wie groß ist „sehr groß“? Größte Einzeldatei, Gesamtbestand heute und in 12 Monaten, Dateitypen (360°-Video, App-Pakete)?
+11. **Backup/Speicherort:** Wo sollen die Inhalte langfristig liegen (Plesk-Platte, Schul-NAS, Objektspeicher), und müssen sie gesichert werden?
 
 ---
 
@@ -388,7 +428,8 @@ Noch in Phase 0 zu prüfen (bei `noten_webapp` nicht nötig gewesen, nicht auf d
 ## 16. Erste Schritte
 
 - [x] LDAP: Umsetzung wie `noten_webapp` festgelegt, APK-Installation per Pico-SDK läuft
-- [ ] AD-Gruppe für LernRaumVR festlegen, Subdomain/Plesk-Abo klären
+- [x] AD-Gruppe `AAD-LUL`, Subdomain `lernraumvr.bbz-rd-eck.com`, verschlüsselte DB festgelegt
+- [ ] Größenordnung der Inhalte, Plattenplatz und Traffic des Plesk-Abos klären (Fragen 2, 10, 11)
 - [ ] Plesk: WebSocket, nginx-Anweisungen für Große-Datei-Upload/Download, Passenger-Instanzen, Traffic-/Plattenkontingent prüfen
 - [ ] Gerätevariante, Android-Version, Firmware der Brille notieren; Entwicklermodus + USB-Debugging aktivieren
 - [ ] Testvideo nach `Movies/` kopieren, im Pico-Player öffnen; 2D-Bedienbarkeit der App prüfen
